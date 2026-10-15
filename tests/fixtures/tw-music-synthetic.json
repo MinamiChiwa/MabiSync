@@ -1,0 +1,46 @@
+{
+  "provenance": "Synthetic wire fixture based on observed TW schema. All identities, title, composer and MML replaced. Not a real natural-end capture.",
+  "gameBuild": "TW 2026-10-03",
+  "events": [
+    {
+      "protocol": 120412,
+      "flag": 1,
+      "body": "G2oA+J8FdmN1c9BY4mXeyTD8HMHyPs4Cy6TOByjzIW/cHJYZoZHtYvlfP+2hiGjHAd7uCxrYgBMNAqWEBueLAR7uFgCPDIcUjt/i0qldeiWK0ftcboeaQMcvmcakSeZFbllp1g1tPq2x2I0B"
+    },
+    {
+      "protocol": 120692,
+      "flag": 0,
+      "body": "KgAAAAAAAABHAAAAAAAAAAIAAAAAAAAAAQAAAGMAAAAB"
+    },
+    {
+      "protocol": 120693,
+      "flag": 0,
+      "body": "KgAAAAAAAAA="
+    },
+    {
+      "protocol": 120413,
+      "flag": 0,
+      "body": "RwAAAAAAAAA="
+    },
+    {
+      "protocol": 120412,
+      "flag": 1,
+      "body": "G2oA+J8FdmN1c9BY4mXeyTD8HMHyPs4Cy6TLByjzIW/cHJYZoZHtYvlfP+2hiGjHAd7uCxrYgBMNAqWEBueLAR7uFgCPDIcUjt/i0qldeiWK0ftcboeaQMcvmcakSeZFbllp1g1tPq2x2I0B"
+    },
+    {
+      "protocol": 120692,
+      "flag": 0,
+      "body": "KgAAAAAAAABIAAAAAAAAAAIAAAAAAAAAAQAAAGMAAAAB"
+    },
+    {
+      "protocol": 120693,
+      "flag": 0,
+      "body": "KgAAAAAAAAA="
+    },
+    {
+      "protocol": 120413,
+      "flag": 0,
+      "body": "SAAAAAAAAAA="
+    }
+  ]
+}

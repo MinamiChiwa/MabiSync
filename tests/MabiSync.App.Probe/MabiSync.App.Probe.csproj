@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/MabiSync.Client/MabiSync.Client.csproj" />
+    <ProjectReference Include="../../src/MabiSync.App/MabiSync.App.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

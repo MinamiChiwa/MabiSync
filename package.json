@@ -1,0 +1,17 @@
+{
+  "name": "mabisync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MabiSync multiplayer emote and music synchronization",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test tests/server.test.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

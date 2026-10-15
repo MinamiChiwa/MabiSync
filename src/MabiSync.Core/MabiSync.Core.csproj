@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><EmbeddedResource Include="../../adapters/tw-20261015-identity-schema.json" LogicalName="MabiSync.TwIdentitySchema" /><EmbeddedResource Include="../../adapters/tw-20261003-gc-map.json" LogicalName="MabiSync.TwProtocols" /></ItemGroup>
+</Project>

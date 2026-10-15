@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/MabiSync.Core/MabiSync.Core.csproj" /><None Include="../fixtures/tw-character-synthetic.bin" Link="tw-character-synthetic.bin" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+</Project>

@@ -1,0 +1,86 @@
+<Window x:Class="MabiSync.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:MabiSync.App" Title="MabiSync" Width="1180" Height="900" MinWidth="760" MinHeight="640" Background="#F1F4F9" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="14" WindowStartupLocation="CenterScreen">
+  <DockPanel Margin="20">
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+      <Border x:Name="InputBadgeCard" DockPanel.Dock="Right" Background="#E5F5ED" CornerRadius="6" Padding="12,6" VerticalAlignment="Center"><TextBlock x:Name="InputBadge" Text="游戏输入已开启" Foreground="#196944" /></Border>
+      <StackPanel><TextBlock Text="MabiSync" FontSize="26" FontWeight="SemiBold" /><TextBlock x:Name="RoleSummaryText" Text="创建房间，或接受好友邀请" Foreground="#67758C" TextWrapping="Wrap" /></StackPanel>
+    </DockPanel>
+    <Border x:Name="StatusCard" DockPanel.Dock="Bottom" Background="White" BorderBrush="#CFDDF2" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,10,0,0">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel>
+        <TextBlock Text="当前状态" Foreground="#667892" FontSize="12" Margin="0,0,0,4" />
+        <TextBlock x:Name="PhaseText" Text="等待准备" FontSize="22" Foreground="#245AC1" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBlock x:Name="NextStepText" Text="创建房间，或粘贴邀请加入。" TextWrapping="Wrap" Margin="0,4,0,0" />
+        <Border x:Name="NetworkBanner" Background="#EAF3FF" CornerRadius="6" Padding="10,7" Margin="0,8,0,0" Visibility="Collapsed"><TextBlock x:Name="NetworkBannerText" Foreground="#245AC1" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+        <StackPanel x:Name="CountdownPanel" Visibility="Collapsed" Margin="0,10,0,3"><DockPanel><TextBlock x:Name="CountdownLabel" Text="距离开始" /><TextBlock x:Name="CountdownValue" DockPanel.Dock="Right" HorizontalAlignment="Right" FontWeight="SemiBold" Foreground="#245AC1" /></DockPanel><ProgressBar x:Name="CountdownProgress" Height="9" Margin="0,6,0,0" Minimum="0" Maximum="1" Value="0" Foreground="#3676E4" Background="#E6EDF8" BorderThickness="0" /></StackPanel>
+        <Border x:Name="ScoreCard" Background="#F3F6FC" CornerRadius="6" Padding="10,7" Margin="0,8,0,0" Visibility="Collapsed"><TextBlock x:Name="ScoreObservationText" Foreground="#4E6280" TextWrapping="Wrap" /></Border>
+        <TextBlock x:Name="MusicStatusText" TextWrapping="Wrap" Foreground="#67758C" Margin="0,4,0,0" Visibility="Collapsed" />
+        <WrapPanel Margin="0,6,0,0">
+          <WrapPanel x:Name="CountdownControls"><TextBlock Text="倒计时" VerticalAlignment="Center" /><TextBox x:Name="CountdownBox" Text="5" Width="70" MaxLength="8" TextChanged="CountdownChanged" ToolTip="1–60 秒，支持小数" /><TextBlock Text="秒" VerticalAlignment="Center" Margin="0,0,14,0" /></WrapPanel>
+          <Button x:Name="ReadyButton" Content="本机就绪" Click="ReadyClick" /><Button x:Name="StartButton" Content="开始" Click="PrepareClick" Style="{StaticResource PrimaryAction}" />
+          <Button x:Name="CancelButton" Content="取消本轮" Click="CancelClick" /><Button x:Name="LocalStopButton" Content="取消本机任务" Click="LocalStopClick" />
+          <Button x:Name="StopButton" Content="全员停止" Click="StopClick" Style="{StaticResource StopAction}" /><Button x:Name="ReportLeaderButton" Content="总指挥提前结束" Click="ReportLeaderClick" /><Button x:Name="ContinueButton" Content="继续演奏" Click="ContinueClick" />
+        </WrapPanel>
+        <TextBlock x:Name="CountdownHint" Foreground="#67758C" TextWrapping="Wrap" />
+        <Expander Header="本机时间微调 · 负数提前，正数延后" Margin="0,6,0,0"><StackPanel><WrapPanel><Slider x:Name="TimingOffsetSlider" Width="200" Minimum="-2000" Maximum="2000" Value="0" TickFrequency="10" SmallChange="10" LargeChange="100" IsSnapToTickEnabled="True" ValueChanged="TimingOffsetChanged" VerticalAlignment="Center" ToolTip="范围 −2000～+2000 毫秒" /><TextBlock x:Name="TimingOffsetValue" Text="0 ms · 不调整" Width="145" Margin="12,0,0,0" VerticalAlignment="Center" /><Button x:Name="ResetTimingButton" Content="归零" Click="ResetTimingClick" /></WrapPanel><TextBlock Text="修改后重新就绪，本轮使用安排时的数值。" Foreground="#67758C" TextWrapping="Wrap" /></StackPanel></Expander>
+        <Border x:Name="FeedbackBanner" Background="#EEF4FF" CornerRadius="6" Padding="10,7" Margin="0,8,0,0" Visibility="Collapsed"><DockPanel><TextBlock x:Name="FeedbackKindText" Text="操作反馈" FontWeight="SemiBold" Foreground="#245AC1" Margin="0,0,10,0" /><TextBlock x:Name="MessageText" Text="" TextWrapping="Wrap" Foreground="#245AC1" /></DockPanel></Border>
+      </StackPanel>
+      </ScrollViewer>
+    </Border>
+    <ScrollViewer x:Name="WorkflowScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel>
+        <Border Style="{StaticResource Card}"><StackPanel x:Name="RoomControls">
+          <DockPanel><TextBlock Text="1  连接房间" Style="{StaticResource SectionTitle}" /><TextBlock x:Name="ConnectionStatus" Text="尚未连接" Margin="16,0,0,0" Foreground="#67758C" /></DockPanel>
+          <WrapPanel><TextBlock Text="昵称" VerticalAlignment="Center" Margin="0,0,8,0" /><TextBox x:Name="NicknameBox" Text="玩家" Width="140" MaxLength="20" TextChanged="NicknameChanged" /><Button x:Name="QuickCreateButton" Content="创建公网房间" Click="QuickCreateClick" /><Button x:Name="RefreshObservationButton" Content="更新昵称" Click="RefreshObservationClick" /><Button x:Name="CaptureChannelsButton" Content="抓包校对" Click="CaptureChannelsClick" /><Button x:Name="CopyPublicButton" Content="复制邀请" Click="CopyPublicClick" IsEnabled="False" /><Button x:Name="LeaveRoomButton" Content="离开房间" Click="LeaveClick" /></WrapPanel>
+          <TextBlock x:Name="ObservationStatusText" Text="抓包识别可更新本机昵称，并核对合奏加入顺序。" TextWrapping="Wrap" Foreground="#67758C" Margin="0,4,0,6" />
+          <StackPanel x:Name="InvitationControls"><DockPanel><Button DockPanel.Dock="Right" x:Name="JoinInvitationButton" Content="加入邀请" Click="JoinInvitationClick" /><TextBox x:Name="InvitationBox" ToolTip="粘贴房主复制的完整邀请（包含地址与房间码）" /></DockPanel>
+          <TextBlock Text="加入方：将完整邀请粘贴到上框，点击“加入邀请”。" Foreground="#67758C" TextWrapping="Wrap" /></StackPanel>
+          <TextBlock x:Name="RoomTitle" Text="尚未加入房间" Margin="0,8,0,4" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <TextBlock x:Name="PublicStateText" Text="异地玩家：房主创建公网房间后分享完整邀请。" TextWrapping="Wrap" Foreground="#67758C" />
+          <Expander x:Name="AdvancedConnection" Header="高级连接 · 局域网 / 手动地址 / 公网管理" Margin="0,12,0,0"><StackPanel Margin="0,8,0,0">
+            <TextBlock Text="服务地址" /><DockPanel><Button DockPanel.Dock="Right" x:Name="ConnectButton" Content="连接 / 重连" Click="ConnectClick" /><TextBox x:Name="EndpointBox" Text="ws://127.0.0.1:3132" /></DockPanel>
+            <WrapPanel><Button Content="启动本机服务" Click="StartServerClick" /><CheckBox x:Name="LanCheck" Content="允许同局域网加入" VerticalAlignment="Center" Margin="4,0,12,0" /><Button Content="创建房间" Click="CreateClick" /><TextBox x:Name="CodeBox" Width="100" MaxLength="6" ToolTip="六位房间码" /><Button Content="加入房间" Click="JoinClick" /></WrapPanel>
+            <WrapPanel><Button x:Name="OpenPublicButton" Content="建立公网连接" Click="OpenPublicClick" /><Button Content="关闭公网连接" Click="ClosePublicClick" /></WrapPanel>
+            <TextBox x:Name="PublicAddressBox" IsReadOnly="True" ToolTip="临时公网地址；推荐使用“复制完整邀请”" />
+          </StackPanel></Expander>
+        </StackPanel></Border>
+        <Border Style="{StaticResource Card}"><StackPanel>
+          <TextBlock Text="2  本轮模式" Style="{StaticResource SectionTitle}" />
+          <WrapPanel><ComboBox x:Name="ModeBox" Width="175" SelectedIndex="0" SelectionChanged="ModeChanged"><ComboBoxItem Content="表情动作" Tag="emote" /><ComboBoxItem Content="合奏" Tag="ensemble" /></ComboBox>
+            <WrapPanel x:Name="StopControls"><ComboBox x:Name="StopChoice" Width="240" SelectedIndex="0" SelectionChanged="ModeChanged"><ComboBoxItem Content="房主手动统一停止" Tag="manual" /><ComboBoxItem Content="手动指定演奏时长" Tag="duration" /><ComboBoxItem Content="总指挥一轮后全员停止" Tag="first-cycle" /></ComboBox><WrapPanel x:Name="DurationControls"><TextBox x:Name="DurationBox" Width="90" Text="30" TextChanged="MusicDurationChanged" ToolTip="从本轮计划开始输入到计划停止输入之间的秒数" /><TextBlock Text="秒" VerticalAlignment="Center" /></WrapPanel></WrapPanel>
+          </WrapPanel>
+          <TextBlock x:Name="FlowHint" Foreground="#67758C" TextWrapping="Wrap" Margin="0,6,0,0" />
+        </StackPanel></Border>
+        <Border x:Name="RosterCard" Style="{StaticResource Card}"><StackPanel>
+          <TextBlock x:Name="RosterTitle" Text="4  本轮参与者 · 房主勾选成员" Style="{StaticResource SectionTitle}" />
+          <TextBlock x:Name="EnsembleRosterHint" Text="按列表顺序加入；实际进度显示在“加入状态”列。" TextWrapping="Wrap" Foreground="#67758C" Margin="0,0,0,8" Visibility="Collapsed" />
+          <DataGrid x:Name="MembersGrid" AllowDrop="True" PreviewMouseLeftButtonDown="RosterPointerDown" PreviewMouseMove="RosterPointerMove" PreviewMouseRightButtonDown="RosterRightClick" DragOver="RosterDragOver" Drop="RosterDrop" ContextMenuOpening="RosterMenuOpening" AutoGenerateColumns="False" CanUserSortColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" MinHeight="75" MaxHeight="180" SelectionMode="Single"><DataGrid.ContextMenu><ContextMenu /></DataGrid.ContextMenu><DataGrid.Columns>
+            <DataGridTemplateColumn x:Name="GroupColumn" Header="合奏组" Width="68" Visibility="Collapsed"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBox Text="{Binding Group, Mode=OneWay}" Tag="group" Style="{StaticResource RosterNumber}" IsReadOnly="{Binding ReadOnly}" LostKeyboardFocus="RosterNumberBlurred" PreviewKeyDown="RosterNumberKeyDown" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridTemplateColumn x:Name="OrderColumn" Header="顺序" Width="56" Visibility="Collapsed"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBox Text="{Binding Order, Mode=OneWay}" Tag="order" Style="{StaticResource RosterNumber}" IsReadOnly="{Binding ReadOnly}" LostKeyboardFocus="RosterNumberBlurred" PreviewKeyDown="RosterNumberKeyDown" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridTemplateColumn x:Name="InstrumentColumn" Header="乐器" Width="146" Visibility="Collapsed"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox Style="{StaticResource RosterChoice}" IsEnabled="{Binding CanEdit}" ItemsSource="{Binding InstrumentOptions, RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" SelectedItem="{Binding Instrument, Mode=OneWay}" DropDownOpened="InstrumentDropdownOpened" SelectionChanged="RosterInstrumentChanged" ToolTip="编辑 Config/乐器列表.txt 可添加乐器" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridTemplateColumn x:Name="EnsembleRoleColumn" Header="合奏身份" Width="100" Visibility="Collapsed"><DataGridTemplateColumn.CellTemplate><DataTemplate><ComboBox Style="{StaticResource RosterChoice}" IsEnabled="{Binding CanEdit}" ItemsSource="{Binding EnsembleRoles, RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding EnsembleRole, Mode=OneWay}" SelectionChanged="RosterRoleChanged" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridCheckBoxColumn Header="参与" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="50" /><DataGridTemplateColumn Header="昵称" Width="*" MinWidth="150"><DataGridTemplateColumn.CellTemplate><DataTemplate><DockPanel VerticalAlignment="Center" Margin="4,0"><Border DockPanel.Dock="Right" Background="#DBEAFE" CornerRadius="4" Padding="4,2" Margin="5,0,0,0" Visibility="{Binding IsSelf, Converter={StaticResource BooleanVisibility}}"><TextBlock Text="本机" Foreground="#245AC1" FontSize="10" FontWeight="SemiBold" /></Border><TextBlock Text="{Binding Nickname}" Foreground="{Binding NameBrush}" FontWeight="{Binding NameWeight}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Nickname}" /></DockPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn><DataGridTextColumn Header="角色" Binding="{Binding Role}" IsReadOnly="True" Width="65" />
+            <DataGridTemplateColumn Header="状态" Width="100"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border Background="{Binding StatusBackground}" CornerRadius="5" Margin="4,6" Padding="6,3" VerticalAlignment="Center"><TextBlock Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontWeight="SemiBold" FontSize="12" /></Border></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+            <DataGridTemplateColumn x:Name="JoinFeedbackColumn" Header="加入状态" Width="190" Visibility="Collapsed"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border Background="{Binding JoinBackground}" CornerRadius="5" Margin="4,5" Padding="6,3" VerticalAlignment="Center"><TextBlock Text="{Binding JoinFeedback}" Foreground="{Binding JoinBrush}" FontSize="12" TextWrapping="Wrap" /></Border></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+          </DataGrid.Columns></DataGrid>
+          <WrapPanel x:Name="LeaderControls" Margin="0,8,0,0"><TextBlock Text="指定总指挥" VerticalAlignment="Center" Margin="0,0,10,0" /><ComboBox x:Name="LeaderBox" Width="190" DisplayMemberPath="Nickname" SelectedValuePath="Id" SelectionChanged="LeaderChanged" /><TextBlock x:Name="LeaderPurposeText" MaxWidth="520" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#67758C" Margin="4,4,0,4" /></WrapPanel>
+        </StackPanel></Border>
+        <Border x:Name="LocalActionCard" Style="{StaticResource Card}"><StackPanel>
+          <TextBlock x:Name="LocalActionTitle" Text="3  本机动作" Style="{StaticResource SectionTitle}" />
+          <TextBlock x:Name="EnsembleRoleText" TextWrapping="Wrap" Margin="0,0,0,8" />
+          <StackPanel x:Name="InputControls">
+            <CheckBox x:Name="EnableGameInput" Content="操作游戏" IsChecked="True" Checked="InputSettingsChanged" Unchecked="InputSettingsChanged" Margin="0,0,0,6" ToolTip="勾选后按本机绑定执行；关闭时运行模拟" />
+            <StackPanel x:Name="GameBindingSettings"><DockPanel><Button DockPanel.Dock="Right" Content="刷新游戏窗口" Click="RefreshWindowsClick" /><ComboBox x:Name="GameWindowBox" DisplayMemberPath="Label" SelectionChanged="GameWindowChanged" ToolTip="选择本机游戏窗口" /></DockPanel>
+            <WrapPanel x:Name="StartBindingControls"><TextBlock Text="触发 / 开始" Width="90" VerticalAlignment="Center" /><ComboBox x:Name="StartInputKind" Width="180" SelectedIndex="0" SelectionChanged="InputSettingsChanged"><ComboBoxItem Content="快捷键" /><ComboBoxItem Content="游戏按钮" /><ComboBoxItem x:Name="ChatDraftItem" Content="预填指令 · 仅按回车" /></ComboBox><TextBox x:Name="StartKeyBox" Width="165" IsReadOnly="True" IsReadOnlyCaretVisible="False" PreviewKeyDown="ShortcutKeyDown" GotKeyboardFocus="ShortcutFocused" LostKeyboardFocus="ShortcutBlurred" ToolTip="点击后直接按键；可用 Ctrl / Alt / Shift 组合。Tab 切换焦点，F9 保留。" /><Button x:Name="CaptureStartButton" Content="点选按钮位置" Click="CaptureStartClick" /></WrapPanel>
+            <TextBlock x:Name="StartCalibrationText" Foreground="#67758C" TextWrapping="Wrap" />
+            <StackPanel x:Name="StopBindingControls"><WrapPanel><TextBlock Text="停止演奏" Width="90" VerticalAlignment="Center" /><ComboBox x:Name="StopInputKind" Width="180" SelectedIndex="0" SelectionChanged="InputSettingsChanged"><ComboBoxItem Content="快捷键" /><ComboBoxItem Content="游戏按钮" /></ComboBox><TextBox x:Name="StopKeyBox" Width="165" IsReadOnly="True" IsReadOnlyCaretVisible="False" PreviewKeyDown="ShortcutKeyDown" GotKeyboardFocus="ShortcutFocused" LostKeyboardFocus="ShortcutBlurred" ToolTip="点击后直接按下专用停止快捷键" /><Button x:Name="CaptureStopButton" Content="点选按钮位置" Click="CaptureStopClick" /></WrapPanel><TextBlock x:Name="StopCalibrationText" Foreground="#67758C" TextWrapping="Wrap" /><CheckBox x:Name="StopIsToggleBox" Visibility="Collapsed" Content="开停切换绑定" Checked="InputSettingsChanged" Unchecked="InputSettingsChanged" /></StackPanel>
+            </StackPanel>
+          </StackPanel>
+          <TextBlock x:Name="ShortcutHint" Foreground="#67758C" TextWrapping="Wrap" Margin="0,4,0,0" />
+          <TextBlock x:Name="InputStateText" Foreground="#67758C" TextWrapping="Wrap" Margin="0,6,0,0" />
+        </StackPanel></Border>
+        <Expander Header="执行记录与诊断" Margin="0,0,0,8"><StackPanel Margin="0,8,0,0"><TextBlock x:Name="ClockText" Foreground="#67758C" TextWrapping="Wrap" /><TextBlock Text="此处记录按键与点击的执行情况；动作效果可在游戏中查看。" Foreground="#67758C" TextWrapping="Wrap" /><TextBox x:Name="ReceiptBox" IsReadOnly="True" Height="110" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" /><Button Content="导出诊断" Click="ExportClick" HorizontalAlignment="Left" /></StackPanel></Expander>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

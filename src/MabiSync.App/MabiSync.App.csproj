@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>MabiSync</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.1.0</Version>
+    <SatelliteResourceLanguages>zh-Hans;zh-Hant</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="../../Config/乐器列表.txt" Link="Config/乐器列表.txt" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="../MabiSync.Client/MabiSync.Client.csproj" />
+    <ProjectReference Include="../MabiSync.Windows/MabiSync.Windows.csproj" />
+    <Content Include="../../server/**" Link="Service/server/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../package.json" Link="Service/package.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../node_modules/ws/**" Link="Service/node_modules/ws/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
