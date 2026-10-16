@@ -16,6 +16,10 @@ public sealed class GameObservationCapture : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private CaptureObservation _current = Empty("尚未启用游戏观测。");
     private volatile bool _disposed;
+    private GameWindowId? _game;
+    private CaptureDevice? _device;
+    public GameWindowId? Game=>Volatile.Read(ref _game);
+    public CaptureDevice? Device=>Volatile.Read(ref _device);
     public CaptureObservation Current => Volatile.Read(ref _current);
     public event Action<CaptureObservation>? Changed;
     internal void Publish(CaptureObservation value) { Volatile.Write(ref _current, value); Changed?.Invoke(value); }
@@ -28,6 +32,7 @@ public sealed class GameObservationCapture : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_worker is { IsCompleted: false }) throw new InvalidOperationException("观测正在运行，请先停止再切换通道。");
             _stop?.Dispose(); _stop = new(); var token = _stop.Token;
+            Volatile.Write(ref _game,game);Volatile.Write(ref _device,device);
             Publish(Empty("正在核对客户端版本与抓包通道。") with { Running = true });
             _worker = Task.Run(async () =>
             {
@@ -69,8 +74,7 @@ public static partial class CaptureChannels
     }
     internal static async Task ObserveAsync(GameWindowId game, CaptureDevice device, Action<CaptureObservation> publish, CancellationToken token)
     {
-        var platform = new WindowsGamePlatform();
-        if (platform.Inspect(game)?.Identity != game) throw new IOException("所选游戏进程已变化，请重新选择。");
+        if (!WindowsGamePlatform.IsProcessRunning(game)) throw new IOException("所选游戏进程已变化，请重新选择。");
         await VerifyClientAsync(game.ImagePath, token).ConfigureAwait(false);
         var channels = new Dictionary<CaptureConnection, ReceiveChannel>();
         var timer = Stopwatch.StartNew(); double lastPoll = -1000, lastReport = -1000; long packets = 0;
@@ -82,7 +86,7 @@ public static partial class CaptureChannels
                 var now = timer.Elapsed.TotalMilliseconds;
                 if (now - lastPoll >= 500)
                 {
-                    if (platform.Inspect(game)?.Identity != game) throw new IOException("游戏已退出或所选窗口已变化。");
+                    if (!WindowsGamePlatform.IsProcessRunning(game)) throw new IOException("所选游戏进程已退出或重新启动。");
                     var current = Connections(game.ProcessId).Where(c => device.Addresses.Contains(c.LocalAddress)).Take(32).ToHashSet();
                     foreach (var old in channels.Keys.Where(c => !current.Contains(c)).ToArray()) { channels[old].Dispose(); channels.Remove(old); }
                     foreach (var connection in current.Where(c => !channels.ContainsKey(c)))

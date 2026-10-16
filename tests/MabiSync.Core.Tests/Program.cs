@@ -6,6 +6,21 @@ void Check(bool condition, string message) { if (!condition) throw new InvalidOp
 void Near(double actual, double expected, double tolerance = .000001) => Check(Math.Abs(actual - expected) < tolerance, $"Expected {expected}, received {actual}");
 void Add(string name, Action run) => tests.Add((name, () => { run(); return Task.CompletedTask; }));
 
+Add("Low delay clock samples use a stable median instead of following one noisy minimum",()=>{
+    var local=new ManualClock();var clock=new RoomClock(local);
+    foreach(var offset in new[]{1000d,1001,999,1000,1000,1020}){
+        var t=local.NowMs;clock.AddSample(t,t+offset+20,t+offset+20,t+40);local.NowMs+=100;
+    }
+    Near(clock.Estimate!.OffsetMs,1000);
+});
+Add("Timing adjustment input keeps one millisecond precision and rejects invalid drafts",()=>{
+    foreach(var (text,value) in new[]{("-1",-1),("+27",27),(" -2000 ",-2000),("2000",2000),("0",0)})
+        Check(TimingAdjustmentText.ParseMilliseconds(text)==value,"Incorrect signed milliseconds");
+    foreach(var text in new[]{"-","","1.5","2,000","2001","-2001"}){
+        try{TimingAdjustmentText.ParseMilliseconds(text);throw new InvalidOperationException("Invalid adjustment accepted");}catch(FormatException){}
+    }
+});
+
 Add("Manual ensemble preparation checks only stop without scheduling or retaining input", () =>
 {
     var local = new StopwatchClock(); var room = new RoomClock(local); var input = new PhysicalBoundaryInput();

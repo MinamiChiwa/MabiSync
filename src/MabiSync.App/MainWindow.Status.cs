@@ -22,8 +22,8 @@ public partial class MainWindow
         }
         FeedbackBanner.Visibility=string.IsNullOrWhiteSpace(text)?Visibility.Collapsed:Visibility.Visible;
         var (background,foreground,label)=_feedbackTone switch {
-            FeedbackTone.Success=>("#E5F5ED","#196944","操作完成"),FeedbackTone.Error=>("#FDECEF","#AE2637","需要处理"),
-            FeedbackTone.Warning=>("#FFF3D8","#875B0A","请留意"),_=>("#EBF2FF","#245AC1","操作反馈")
+            FeedbackTone.Success=>("#173D32","#86E1B2","操作完成"),FeedbackTone.Error=>("#482730","#FFAFB9","需要处理"),
+            FeedbackTone.Warning=>("#44391F","#F6D58B","请留意"),_=>("#203552","#9DC7FF","操作反馈")
         };
         FeedbackBanner.Background=ColorBrush(background);MessageText.Foreground=FeedbackKindText.Foreground=ColorBrush(foreground);FeedbackKindText.Text=label;
     }
@@ -33,8 +33,8 @@ public partial class MainWindow
         if(_closing)return;
         PublicStateText.Text=state.Message;PublicAddressBox.Text=state.Endpoint?.AbsoluteUri??"";
         NetworkBanner.Visibility=state.Status=="off"?Visibility.Collapsed:Visibility.Visible;
-        NetworkBanner.Background=ColorBrush(state.Status switch{"ready"=>"#E5F5ED","error"=>"#FDECEF",_=>"#EBF2FF"});
-        NetworkBannerText.Foreground=ColorBrush(state.Status switch{"ready"=>"#196944","error"=>"#AE2637",_=>"#245AC1"});
+        NetworkBanner.Background=ColorBrush(state.Status switch{"ready"=>"#173D32","error"=>"#482730",_=>"#203552"});
+        NetworkBannerText.Foreground=ColorBrush(state.Status switch{"ready"=>"#86E1B2","error"=>"#FFAFB9",_=>"#9DC7FF"});
         NetworkBannerText.Text=state.Status=="ready"?"公网房间已就绪 · 点击“复制邀请”分享给好友。":state.Message;
         if(state.Status=="ready")Feedback("公网连接已建立，邀请已可分享。");
         else if(state.Status=="error")Feedback(state.Message,FeedbackTone.Error);
@@ -56,7 +56,7 @@ public partial class MainWindow
         } else return;
         CountdownPanel.Visibility=Visibility.Visible;
         CountdownLabel.Text=stopping?"距离统一停止":"距离同步开始";
-        CountdownProgress.IsIndeterminate=now is null;CountdownProgress.Foreground=ColorBrush(stopping?"#299064":"#3676E4");
+        CountdownProgress.IsIndeterminate=now is null;CountdownProgress.Foreground=ColorBrush(stopping?"#67CF9D":"#79ACFF");
         CountdownProgress.Value=Math.Clamp(remaining/Math.Max(1,total),0,1);
         CountdownValue.Text=now is null?"正在校时":$"{Math.Max(0,remaining/1000):0.0} 秒";
     }

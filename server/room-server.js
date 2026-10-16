@@ -23,7 +23,7 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
   const serverEpoch = randomUUID(), rooms = new Map(), closures = new Map(), timers = new Set();
   let closing = false;
   const now = () => performance.now();
-  const identity = { product: PRODUCT, protocolVersion: VERSION, serverEpoch, features: { gameObservation: 1, ensembleRoster: 1, firstCycleStop: 1, rosterEditing: 1, roomClosure:1 } };
+  const identity = { product: PRODUCT, protocolVersion: VERSION, serverEpoch, features: { gameObservation: 1, ensembleRoster: 1, firstCycleStop: 1, rosterEditing: 1, roomClosure:1, adaptiveTiming:2 } };
   const server = http.createServer((req, res) => {
     res.writeHead(req.url === '/health' ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(req.url === '/health' ? { ok: true, ...identity, automaticGameEndVerified: false } : { error: 'not found' }));
@@ -104,9 +104,13 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
   function capabilities(c) {
     if (!c || ['simulation', 'canStart', 'canStop'].some(k => typeof c[k] !== 'boolean')) fail('BAD_CAPABILITIES');
     const timingOffsetMs = c.timingOffsetMs ?? 0, musicRole = c.musicRole ?? 'initiator', readyMode = c.readyMode ?? null;
+    const clockRoundTripMs=c.clockRoundTripMs??0;
+    const windowActivationMs=c.windowActivationMs??0;
     if (!Number.isInteger(timingOffsetMs) || timingOffsetMs < -2000 || timingOffsetMs > 2000 ||
-        !['initiator', 'joiner'].includes(musicRole) || (readyMode !== null && !MODES.has(readyMode))) fail('BAD_CAPABILITIES');
-    return { simulation: c.simulation, canStart: c.canStart, canStop: c.canStop, timingOffsetMs, musicRole, readyMode };
+        !['initiator', 'joiner'].includes(musicRole) || (readyMode !== null && !MODES.has(readyMode)) ||
+        !validNumber(clockRoundTripMs) || clockRoundTripMs<0 || clockRoundTripMs>30000 ||
+        !Number.isInteger(windowActivationMs) || windowActivationMs<0 || windowActivationMs>5000) fail('BAD_CAPABILITIES');
+    return { simulation: c.simulation, canStart: c.canStart, canStop: c.canStop, timingOffsetMs, musicRole, readyMode,clockRoundTripMs,windowActivationMs };
   }
   const actionMembers = (p, a) => a.kind === 'start' ? p.startParticipantIds : p.participantIds;
   const memberPrepared = (p, id) => (!p.manualJoinerIds.includes(id) || p.sessionAcks.has(id)) &&
@@ -114,7 +118,7 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
   function performanceView(p) {
     if (!p) return null;
     return { id: p.id, mode: p.mode, phase: p.phase, leaderId: p.leaderId, countdownMs: p.countdownMs,
-      earliestStartServerMs: p.earliestStartServerMs, latestStartServerMs: p.latestStartServerMs,
+      earliestStartServerMs: p.earliestStartServerMs, latestStartServerMs: p.latestStartServerMs, requestedCountdownMs:p.requestedCountdownMs,
       participantIds: p.participantIds, startParticipantIds: p.startParticipantIds, manualJoinerIds: p.manualJoinerIds,
       startAction: p.startAction, stopAction: p.stopAction,
       stopTimingSource: p.stopAction ? p.stopTimingSource??'user-duration' : null,
@@ -325,10 +329,15 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
     if (missing.length) fail('MEMBER_NOT_READY', { memberIds: missing });
     const leads = startParticipantIds.map(id => room.members.get(id).capabilities.timingOffsetMs ?? 0);
     const advance = Math.max(0, ...leads.map(n => -n)), delay = Math.max(0, ...leads);
-    if (countdown <= advance + 50) fail('COUNTDOWN_BEFORE_LOCAL_TRIGGER');
-    const id = randomUUID(), target = now() + countdown;
+    // Leave a full preparation window before the earliest adjusted local input.
+    // Large advances expand a short countdown instead of rejecting the round.
+    const rtt=Math.max(0,...ids.map(id=>room.members.get(id).capabilities.clockRoundTripMs??0));
+    const activation=Math.max(0,...ids.map(id=>room.members.get(id).capabilities.windowActivationMs??0));
+    const preparationMs=Math.max(500,activation+Math.min(5000,Math.ceil(rtt*3+250)));
+    const effectiveCountdown=Math.max(countdown,advance+preparationMs);
+    const id = randomUUID(), target = now() + effectiveCountdown;
     const action = (kind, targetServerMs) => ({ id: randomUUID(), sessionId: id, kind, targetServerMs, serverEpoch });
-    const p = { id, mode: msg.mode, phase: 'preparing', countdownMs: countdown, leaderId: msg.mode === 'emote' ? null : room.leaderId,
+    const p = { id, mode: msg.mode, phase: 'preparing', countdownMs: effectiveCountdown, requestedCountdownMs:countdown, leaderId: msg.mode === 'emote' ? null : room.leaderId,
       participantIds: [...ids], startParticipantIds, manualJoinerIds, sessionAcks: new Set(),
       startAction: action('start', target), earliestStartServerMs: target - advance, latestStartServerMs: target + delay,
       delayMs: Math.max(0, ...ids.map(id => room.members.get(id).capabilities.timingOffsetMs ?? 0)),

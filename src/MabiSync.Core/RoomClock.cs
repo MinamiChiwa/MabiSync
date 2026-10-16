@@ -21,7 +21,7 @@ public sealed class RoomClock(IMonotonicClock clock)
         lock (_gate)
         {
             _samples.Add((((t2 - t1) + (t3 - t4)) / 2, Math.Max(0, rtt), t4));
-            if (_samples.Count > 20) _samples.RemoveAt(0);
+            if (_samples.Count > 64) _samples.RemoveAt(0);
         }
         return true;
     }
@@ -34,10 +34,15 @@ public sealed class RoomClock(IMonotonicClock clock)
                 var now = clock.NowMs;
                 _samples.RemoveAll(s => now - s.Received > 10_000);
                 if (_samples.Count == 0) return null;
-                var sample = _samples.OrderBy(s => s.Rtt).ThenByDescending(s => s.Received).First();
+                var minimum = _samples.Min(s => s.Rtt);
+                var best = _samples.Where(s => s.Rtt <= minimum + Math.Max(2, minimum * .1))
+                    .OrderByDescending(s => s.Received).Take(9).ToArray();
+                var offsets = best.Select(s => s.Offset).Order().ToArray();
+                var offset = offsets.Length % 2 == 1 ? offsets[offsets.Length / 2] : (offsets[offsets.Length / 2 - 1] + offsets[offsets.Length / 2]) / 2;
+                var sample = best.MinBy(s => s.Rtt);
                 var age = Math.Max(0, now - sample.Received);
                 // Network asymmetry plus a stated drift allowance, not an OS/game precision claim.
-                return new(sample.Offset, sample.Rtt, sample.Rtt / 2 + age * .0002, age);
+                return new(offset, sample.Rtt, sample.Rtt / 2 + age * .0002 + offsets.Select(o=>Math.Abs(o-offset)).Order().ElementAt(offsets.Length/2), age);
             }
         }
     }

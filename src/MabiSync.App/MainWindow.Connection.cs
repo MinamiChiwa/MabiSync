@@ -1,6 +1,8 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Globalization;
 using MabiSync.Core;
 
 namespace MabiSync.App;
@@ -11,20 +13,38 @@ public partial class MainWindow
     private string? _countdownError;
     private bool _connectionBusy;
     private bool _wasInRoom;
+    private bool _syncTimingText;
     private int TimingOffsetMs => (int)Math.Round(TimingOffsetSlider.Value);
     private void TimingOffsetChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (!_uiReady || _closing) return;
-        if (_inputRouter.StartsEnabled) InvalidateReadiness();
         _scheduler.TimingOffsetMs = TimingOffsetMs;
+        InvalidateReadiness();
         RefreshTimingLabel(); SaveSettings();
     }
-    private void RefreshTimingLabel() => TimingOffsetValue.Text = TimingOffsetMs switch
+    private void TimingOffsetTextChanged(object sender,TextChangedEventArgs e)
     {
-        < 0 => $"{TimingOffsetMs} ms · 提前",
-        > 0 => $"+{TimingOffsetMs} ms · 延后",
-        _ => "0 ms · 不调整"
-    };
+        if(!_uiReady||_closing||_syncTimingText)return;
+        try {
+            var value=TimingAdjustmentText.ParseMilliseconds(TimingOffsetBox.Text);
+            TimingOffsetBox.ClearValue(ToolTipProperty);
+            TimingOffsetSlider.Value=value;
+        } catch(FormatException error){TimingOffsetBox.ToolTip=error.Message;}
+    }
+    private void TimingOffsetBlurred(object sender,KeyboardFocusChangedEventArgs e)=>RefreshTimingLabel();
+    private void TimingOffsetKeyDown(object sender,KeyEventArgs e)
+    {
+        if(e.Key is Key.Enter or Key.Escape){e.Handled=true;RefreshTimingLabel();Keyboard.ClearFocus();}
+    }
+    private void RefreshTimingLabel()
+    {
+        TimingOffsetValue.Text=TimingOffsetMs switch {<0=>$"{TimingOffsetMs} ms · 提前",>0=>$"+{TimingOffsetMs} ms · 延后",_=>"0 ms · 不调整"};
+        TimingAdjustmentSection.Header="本机时间微调 · "+TimingOffsetValue.Text;
+        StatusTimingSummary.Text="本机微调："+TimingOffsetValue.Text;
+        _syncTimingText=true;
+        try{TimingOffsetBox.Text=TimingOffsetMs.ToString(CultureInfo.InvariantCulture);}
+        finally{_syncTimingText=false;}
+    }
     private void ResetTimingClick(object sender, RoutedEventArgs e) => TimingOffsetSlider.Value = 0;
     private void CountdownChanged(object sender, TextChangedEventArgs e)
     {
@@ -42,7 +62,8 @@ public partial class MainWindow
         if (inRoom && !_wasInRoom) AdvancedConnection.IsExpanded = false;
         _wasInRoom = inRoom;
         QuickCreateButton.IsEnabled = JoinInvitationButton.IsEnabled = !inRoom;
-        CopyPublicButton.IsEnabled = ViewConnected && ViewSession is not null && _tunnel.State.Status == "ready";
+        CopyPublicButton.IsEnabled = !_copyingInvitation && ViewConnected && ViewSession is not null && _tunnel.State.Status == "ready";
+        RefreshCopyStatus();
         NicknameBox.IsEnabled = ViewSession is null;
     }
     private async Task RunConnection(Button button, Func<Task> operation)

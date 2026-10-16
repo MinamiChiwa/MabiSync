@@ -10,7 +10,14 @@ namespace MabiSync.Windows;
 public sealed class WindowsGamePlatform : IGameInputPlatform
 {
     public Task ActivateAsync(GameWindowId window,CancellationToken token=default)=>WindowActivation.ActivateAsync(window,Inspect,
-        game=>Native.ShowWindowAsync(game.Handle,9),game=>Native.SetForegroundWindow(game.Handle),token);
+        game=>Native.ShowWindowAsync(game.Handle,9),BringToForeground,token);
+    private static void BringToForeground(GameWindowId game)
+    {
+        var own=Native.GetCurrentThreadId();var foreground=Native.GetWindowThreadProcessId(Native.GetForegroundWindow(),out _);
+        var attached=foreground!=0 && foreground!=own && Native.AttachThreadInput(own,foreground,true);
+        try{Native.BringWindowToTop(game.Handle);Native.SetForegroundWindow(game.Handle);}
+        finally{if(attached)Native.AttachThreadInput(own,foreground,false);}
+    }
     public (int X,int Y) ReadPhysicalCursor()
     {
         using var dpi=new PhysicalDpiScope();
@@ -31,14 +38,16 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
         if (x < 0 || y < 0 || x >= state.Client.Width || y >= state.Client.Height) throw new InvalidOperationException("鼠标不在游戏客户区。");
         return new(x, y, state.Client.Width, state.Client.Height, state.Client.Dpi);
     }
-    public IReadOnlyList<GameWindowState> ListGameWindows()
+    public IReadOnlyList<GameWindowState> ListGameWindows(bool includeOtherWindows=false)
     {
         List<GameWindowState> result = [];
         Native.EnumWindows((window, _) =>
         {
             var id = ReadIdentity(window);
-            if (id is not null && string.Equals(Path.GetFileName(id.ImagePath), "MabinogiMobile.exe", StringComparison.OrdinalIgnoreCase) &&
-                Native.IsWindowVisible(window) && Inspect(id) is { } state && state.Client.Width > 0 && state.Client.Height > 0) result.Add(state);
+            if(id is null || id.ProcessId==Environment.ProcessId || !Native.IsWindowVisible(window))return true;
+            var name=Path.GetFileName(id.ImagePath);
+            var known=string.Equals(name,"MabinogiMobile.exe",StringComparison.OrdinalIgnoreCase) || string.Equals(name,"MabinogiMobile_CLI.exe",StringComparison.OrdinalIgnoreCase);
+            if((known || includeOtherWindows) && Inspect(id) is{} state && (known || !string.IsNullOrWhiteSpace(state.Title)))result.Add(state);
             return true;
         }, 0);
         return result;
@@ -47,14 +56,20 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
     {
         using var dpi = new PhysicalDpiScope();
         var id = ReadIdentity(window.Handle);
-        if (id is null || !Native.GetClientRect(window.Handle, out var rect)) return null;
-        var point = new Native.Point(); if (!Native.ClientToScreen(window.Handle, ref point)) return null;
+        if (id is null) return null;
+        Native.GetClientRect(window.Handle,out var rect);
+        var point = new Native.Point();Native.ClientToScreen(window.Handle, ref point);
         using var process = Native.OpenProcess(0x1000, false, (uint)id.ProcessId); // PROCESS_QUERY_LIMITED_INFORMATION, never VM_READ/VM_WRITE
         var targetIntegrity = Integrity(process.DangerousGetHandle()); var ownIntegrity = Integrity(Native.GetCurrentProcess());
         return new(id, new(point.X, point.Y, rect.Right - rect.Left, rect.Bottom - rect.Top, Native.GetDpiForWindow(window.Handle)),
             Native.IsWindowVisible(window.Handle) && !Native.IsIconic(window.Handle), Native.GetForegroundWindow() == window.Handle,
-            targetIntegrity is not null && ownIntegrity is not null && ownIntegrity >= targetIntegrity);
+            targetIntegrity is not null && ownIntegrity is not null && ownIntegrity >= targetIntegrity)
+            {Title=ReadTitle(window.Handle),Minimized=Native.IsIconic(window.Handle)};
     }
+    public static bool IsProcessRunning(GameWindowId game)=>ReadProcessIdentity(game.Handle,(uint)game.ProcessId) is{} actual &&
+        actual.ProcessStartedUtcTicks==game.ProcessStartedUtcTicks && string.Equals(actual.ImagePath,game.ImagePath,StringComparison.OrdinalIgnoreCase);
+    private static string ReadTitle(nint window)
+    {var title=new StringBuilder(4096);Native.GetWindowText(window,title,title.Capacity);return title.ToString();}
     public bool KeyIsDown(ushort key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
     public bool LeftButtonIsDown() => KeyIsDown(1);
     public bool PointBelongsToWindow(GameWindowId window, int screenX, int screenY)
@@ -81,6 +96,10 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
     {
         if (!Native.IsWindow(window)) return null;
         Native.GetWindowThreadProcessId(window, out var pid); if (pid == 0) return null;
+        return ReadProcessIdentity(window,pid);
+    }
+    private static GameWindowId? ReadProcessIdentity(nint window,uint pid)
+    {
         using var process = Native.OpenProcess(0x1000, false, pid);
         if (process.IsInvalid) return null;
         var path = new StringBuilder(32768); var size = path.Capacity;
@@ -127,6 +146,10 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsIconic(nint hwnd);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool ShowWindowAsync(nint hwnd,int command);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetForegroundWindow(nint hwnd);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool BringWindowToTop(nint hwnd);
+        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool AttachThreadInput(uint from,uint to,[MarshalAs(UnmanagedType.Bool)]bool attach);
+        [DllImport("kernel32.dll")] internal static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll",EntryPoint="GetWindowTextW",CharSet=CharSet.Unicode)] internal static extern int GetWindowText(nint hwnd,StringBuilder title,int maximum);
         [DllImport("user32.dll",SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetWindowPos(nint hwnd,nint after,int x,int y,int width,int height,uint flags);
         [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint hwnd, out uint pid);
         [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();

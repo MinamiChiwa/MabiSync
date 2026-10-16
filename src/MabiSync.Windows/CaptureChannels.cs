@@ -82,8 +82,7 @@ public static partial class CaptureChannels
     }
     public static Task CheckAsync(GameWindowId game, CaptureDevice device, CaptureConnection connection, IProgress<ChannelCheck> progress, CancellationToken token) => Task.Run(() =>
     {
-        var state = new WindowsGamePlatform().Inspect(game);
-        if (state?.Identity != game || !Connections(game.ProcessId).Contains(connection)) throw new IOException("所选游戏或连接已变化，请重新选择。");
+        if (!WindowsGamePlatform.IsProcessRunning(game) || !Connections(game.ProcessId).Contains(connection)) throw new IOException("所选游戏或连接已变化，请重新选择。");
         if (!device.Addresses.Contains(connection.LocalAddress)) throw new IOException("所选网卡不包含这条连接的本机地址。");
         var error = new StringBuilder(256);
         var handle = pcap_open_live(device.Name, 65536, 0, 100, error);

@@ -191,6 +191,7 @@ public sealed class ActionScheduler : IDisposable
     private void Signal() { try { _wake.Set(); } catch (ObjectDisposedException) { } }
     private void Run()
     {
+        using var waiter=new DeadlineWaiter();
         try
         {
             while (true)
@@ -203,7 +204,8 @@ public sealed class ActionScheduler : IDisposable
                     wait = next is null ? 250 : next.Deadline - _local.NowMs;
                     if (next is not null && wait <= 0) next.Executing = true;
                 }
-                if (next is null || wait > 2) { _wake.WaitOne((int)Math.Clamp(Math.Ceiling(wait - 1), 1, 250)); continue; }
+                if(next is null){_wake.WaitOne(250);continue;}
+                if(wait>1){waiter.Wait(_wake,wait);continue;}
                 if (wait > 0) { Thread.Yield(); continue; }
                 InputOutcome outcome;
                 try

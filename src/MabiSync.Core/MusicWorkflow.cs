@@ -11,7 +11,7 @@ public static class MusicStopSettings
         "manual" => MusicStopRule.Manual,
         "duration" => MusicStopRule.Duration,
         "first-cycle" => MusicStopRule.FirstCycle,
-        _ => legacyIndex == 2 ? MusicStopRule.Duration : MusicStopRule.Manual
+        _ => name is null && legacyIndex is null ? MusicStopRule.FirstCycle : legacyIndex == 2 ? MusicStopRule.Duration : MusicStopRule.Manual
     };
     public static string Persist(MusicStopRule rule) => rule switch { MusicStopRule.Duration => "duration", MusicStopRule.FirstCycle => "first-cycle", _ => "manual" };
 }

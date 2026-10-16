@@ -19,23 +19,26 @@ public partial class CaptureChannelWindow : Window
     private IReadOnlyList<CaptureConnection> _connections = [];
     public CaptureChannelWindow(GameWindowId? game, GameObservationCapture observer)
     {
-        InitializeComponent(); _preferred = game; _observer = observer;
+        InitializeComponent(); _preferred = observer.Game??game; _observer = observer;
         Loaded += (_, _) => { RefreshChannels(); ShowObservation(_observer.Current); }; Closing += OnClosing;
         _observer.Changed += ObservationChanged;
     }
     private void RefreshClick(object sender, RoutedEventArgs e) => RefreshChannels();
     private void RefreshChannels()
     {
-        if (_check is { IsCompleted: false } || _observer.Current.Running) return;
+        if (_check is { IsCompleted: false }) return;
         try
         {
             _refreshing = true;
             var previous = (GamesBox.SelectedItem as GameChoice)?.State.Identity ?? _preferred;
-            var windows = new WindowsGamePlatform().ListGameWindows().Select(w => new GameChoice(w)).ToArray();
+            var platform=new WindowsGamePlatform();
+            var states=platform.ListGameWindows(ShowOtherWindows.IsChecked==true).ToList();
+            if(_observer.Current.Running && _observer.Game is{} bound && states.All(s=>s.Identity!=bound) && platform.Inspect(bound) is{} active && active.Identity==bound)states.Add(active);
+            var windows=states.Select(w=>new GameChoice(w)).ToArray();
             GamesBox.ItemsSource = windows; GamesBox.SelectedItem = windows.FirstOrDefault(w => w.State.Identity == previous);
             if (GamesBox.SelectedItem is null && windows.Length == 1) GamesBox.SelectedIndex = 0;
-            _devices = CaptureChannels.Devices().ToArray();
-            CaptureStateText.Text = windows.Length == 0 ? "未发现可见游戏窗口。请恢复游戏后刷新。" : "请选择要校对的通道。";
+            _devices = _observer.Current.Running && _observer.Device is{} activeDevice?[activeDevice]:CaptureChannels.Devices().ToArray();
+            CaptureStateText.Text = windows.Length == 0 ? "未发现游戏窗口，可勾选“显示其他窗口”后刷新。" : "请选择要校对的通道。";
             RefreshGameConnections();
         }
         catch (Exception error) { CaptureStateText.Text = Explain(error); CheckButton.IsEnabled = false; }
@@ -48,7 +51,7 @@ public partial class CaptureChannelWindow : Window
         {
             _connections = GamesBox.SelectedItem is GameChoice game ? CaptureChannels.Connections(game.State.Identity.ProcessId) : [];
             var previous = (DevicesBox.SelectedItem as CaptureDevice)?.Name;
-            var devices = _devices.Where(d => _connections.Any(c => d.Addresses.Contains(c.LocalAddress))).ToArray();
+            var devices = _observer.Current.Running && _observer.Device is{} activeDevice?[activeDevice]:_devices.Where(d => _connections.Any(c => d.Addresses.Contains(c.LocalAddress))).ToArray();
             DevicesBox.ItemsSource = devices; DevicesBox.SelectedItem = devices.FirstOrDefault(d => d.Name == previous);
             if (DevicesBox.SelectedItem is null && devices.Length > 0) DevicesBox.SelectedIndex = 0;
             RefreshConnectionSelection();
@@ -83,7 +86,7 @@ public partial class CaptureChannelWindow : Window
     private void SetRunning(bool running)
     {
         var observing = _observer.Current.Running;
-        GamesBox.IsEnabled = DevicesBox.IsEnabled = ConnectionsBox.IsEnabled = RefreshButton.IsEnabled = !running && !observing;
+        GamesBox.IsEnabled = ShowOtherWindows.IsEnabled = DevicesBox.IsEnabled = ConnectionsBox.IsEnabled = RefreshButton.IsEnabled = !running && !observing;
         CancelButton.IsEnabled = running; CheckButton.IsEnabled = !running && !observing && ConnectionsBox.SelectedItem is CaptureConnection;
         ObserveButton.IsEnabled = !running && !observing && GamesBox.SelectedItem is GameChoice && DevicesBox.SelectedItem is CaptureDevice;
         StopObserveButton.IsEnabled = observing;
@@ -133,6 +136,6 @@ public partial class CaptureChannelWindow : Window
     }
     private sealed record GameChoice(GameWindowState State)
     {
-        public string Label => $"PID {State.Identity.ProcessId} · {State.Client.Width}×{State.Client.Height} · {System.IO.Path.GetDirectoryName(State.Identity.ImagePath)}";
+        public string Label => State.Label;
     }
 }

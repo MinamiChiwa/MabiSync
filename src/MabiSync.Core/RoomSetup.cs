@@ -2,6 +2,16 @@ using System.Globalization;
 
 namespace MabiSync.Core;
 
+public static class TimingAdjustmentText
+{
+    public static int ParseMilliseconds(string text)
+    {
+        if(!int.TryParse(text.Trim(),NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var value) || value is < -2000 or > 2000)
+            throw new FormatException("时间微调请输入 −2000～+2000 的整数毫秒；负数提前，正数延后。");
+        return value;
+    }
+}
+
 public static class CountdownText
 {
     public static int ParseMilliseconds(string text)

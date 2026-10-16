@@ -68,7 +68,8 @@ internal sealed class LocalService : IDisposable
                     !features.TryGetProperty("gameObservation", out var observation) || observation.ValueKind != JsonValueKind.Number || !observation.TryGetInt32(out var supported) || supported != 1 ||
                     !features.TryGetProperty("firstCycleStop", out var cycle) || cycle.ValueKind != JsonValueKind.Number || !cycle.TryGetInt32(out var cycleSupported) || cycleSupported != 1 ||
                     !features.TryGetProperty("rosterEditing",out var editing) || editing.ValueKind!=JsonValueKind.Number || !editing.TryGetInt32(out var editingSupported) || editingSupported!=1 ||
-                    !features.TryGetProperty("roomClosure",out var closure) || closure.ValueKind!=JsonValueKind.Number || !closure.TryGetInt32(out var closureSupported) || closureSupported!=1)
+                    !features.TryGetProperty("roomClosure",out var closure) || closure.ValueKind!=JsonValueKind.Number || !closure.TryGetInt32(out var closureSupported) || closureSupported!=1 ||
+                    !features.TryGetProperty("adaptiveTiming",out var timing) || timing.ValueKind!=JsonValueKind.Number || !timing.TryGetInt32(out var timingSupported) || timingSupported<2)
                     throw new IOException("3132 端口仍在运行旧版 MabiSync 服务，请先关闭旧工具后重试。");
                 return true;
             }

@@ -23,6 +23,17 @@ public partial class MainWindow
     private string? _bindingError;
     private ButtonBinding? _startButtonDraft, _stopButtonDraft;
     private GameWindowId? SelectedWindow => (GameWindowBox.SelectedItem as WindowChoice)?.State.Identity;
+    private Task PrepareWindowForRoundAsync(ScheduledAction action,CancellationToken token)=>Dispatcher.InvokeAsync(async()=>
+    {
+        token.ThrowIfCancellationRequested();
+        if(_closing)throw new OperationCanceledException();
+        if(_inputRouter.UseSimulation)return;
+        var window=Volatile.Read(ref _gameProfile)?.Window??throw new InvalidOperationException("请先选择本机游戏窗口。");
+        using var cancellation=CancellationTokenSource.CreateLinkedTokenSource(token,_calibrationCancellation.Token);
+        Feedback("正在恢复并激活本机游戏窗口……",FeedbackTone.Info);
+        await _gamePlatform.ActivateAsync(window,cancellation.Token);
+        Feedback("游戏窗口已就绪，等待本轮开始。",FeedbackTone.Info);
+    }).Task.Unwrap();
     private void InitializeInputs()
     {
         _inputRouter.UseSimulation=EnableGameInput.IsChecked!=true;
@@ -35,13 +46,16 @@ public partial class MainWindow
     {
         if (_renderedMode != SelectedMode) RenderBindings();
         InputControls.IsEnabled = !active && !_calibrating;
+        LocalActionSummary.Text=_inputRouter.UseSimulation?"模拟模式":(GameWindowBox.SelectedItem as WindowChoice)?.State is{} selected
+            ?string.IsNullOrWhiteSpace(selected.Title)?System.IO.Path.GetFileName(selected.Identity.ImagePath):selected.Title:"选择窗口并设置绑定";
+        LocalActionSummary.ToolTip=(GameWindowBox.SelectedItem as WindowChoice)?.Label;
         ReadyButton.IsEnabled &= !_calibrating;
         StartButton.IsEnabled &= !_calibrating;
         StopBindingControls.Visibility = SelectedMode == "emote" ? Visibility.Collapsed : Visibility.Visible;
         StartBindingControls.Visibility = StartCalibrationText.Visibility = IsManualEnsembleJoiner ? Visibility.Collapsed : Visibility.Visible;
         GameBindingSettings.Visibility = _inputRouter.UseSimulation ? Visibility.Collapsed : Visibility.Visible;
         InputBadge.Text = _inputRouter.UseSimulation ? "模拟模式" : "游戏输入已开启";
-        InputBadgeCard.Background=ColorBrush(_inputRouter.UseSimulation?"#EBF2FF":"#E5F5ED");InputBadge.Foreground=ColorBrush(_inputRouter.UseSimulation?"#245AC1":"#196944");
+        InputBadgeCard.Background=ColorBrush(_inputRouter.UseSimulation?"#203552":"#173D32");InputBadge.Foreground=ColorBrush(_inputRouter.UseSimulation?"#9DC7FF":"#86E1B2");
         InputStateText.Text = _bindingError ?? (_inputRouter.UseSimulation ? "模拟模式可先检查联机与倒计时。准备实测时开启“操作游戏”。" :
             SelectedMode == "emote" ? "F9：取消本机待触发任务。" : "F9：本机停止。");
     }
@@ -72,7 +86,7 @@ public partial class MainWindow
         CaptureStartButton.Visibility = StartInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         CaptureStopButton.Visibility = StopInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         static string Describe(ButtonBinding? b) => b is null ? "点击“点选按钮位置”，再点选游戏中的按钮。右键、Esc 或 F9 取消。" : $"已记录 ({b.X}, {b.Y}) · {b.ClientWidth}×{b.ClientHeight} · DPI {b.Dpi}。窗口尺寸或缩放改变后重新记录。";
-        StartCalibrationText.Text = StartInputKind.SelectedIndex switch { 1 => Describe(_startButtonDraft), 2 => "在游戏聊天框预填动作指令，回到工具点击本机就绪；开始后切回游戏，保持输入框打开，等待自动回车。", _ => "" };
+        StartCalibrationText.Text = StartInputKind.SelectedIndex switch { 1 => Describe(_startButtonDraft), 2 => "在游戏聊天框预填动作指令，回到工具点击本机就绪；开始前自动激活游戏，保持输入框打开，等待自动回车。", _ => "" };
         StopCalibrationText.Text = StopInputKind.SelectedIndex == 1 ? Describe(_stopButtonDraft) : "";
     }
     private void ShortcutFocused(object sender, KeyboardFocusChangedEventArgs e) => ShortcutHint.Text = "请直接按下快捷键，可同时按 Ctrl / Alt / Shift。Tab 离开录入框；F9 是本机停止键。";
@@ -123,13 +137,14 @@ public partial class MainWindow
     }
     private void RefreshWindowsClick(object sender, RoutedEventArgs e)
     {
+        if(!_uiReady || _closing)return;
         var previous = SelectedWindow;
-        var windows = _gamePlatform.ListGameWindows().Select(w => new WindowChoice(w)).ToArray();
+        var windows = _gamePlatform.ListGameWindows(ShowOtherWindows.IsChecked==true).Select(w => new WindowChoice(w)).ToArray();
         GameWindowBox.ItemsSource = windows;
         // Reuse only the exact live window. Never silently choose a new process after a restart.
         GameWindowBox.SelectedItem = windows.FirstOrDefault(w => w.State.Identity == previous);
         if (previous is null && windows.Length == 1) GameWindowBox.SelectedIndex = 0;
-        if (windows.Length == 0) MessageText.Text = "没有发现可见的 MabinogiMobile 游戏窗口，请先恢复游戏再刷新。";
+        if (windows.Length == 0) MessageText.Text = "未发现游戏窗口，请启动游戏后刷新，或勾选“显示其他窗口”。";
         else Feedback($"已发现 {windows.Length} 个游戏窗口。",FeedbackTone.Info);
     }
     private async void CaptureStartClick(object sender, RoutedEventArgs e) => await CaptureBinding((Button)sender, true);
@@ -179,6 +194,7 @@ public partial class MainWindow
     }
     private void InvalidateReadiness()
     {
+        _client.CancelLocalPreparations();
         _inputRouter.StartsEnabled = false;
         _gameInput.RevokeChatDraft();
         _scheduler.CancelPendingStarts();
@@ -196,6 +212,7 @@ public partial class MainWindow
     }
     private void StopLocally()
     {
+        _client.CancelLocalPreparations();
         _inputRouter.StartsEnabled = false; _gameInput.RevokeChatDraft();
         try { Volatile.Read(ref _currentCalibration)?.Cancel(); } catch (ObjectDisposedException) { }
         _scheduler.CancelAll();
@@ -213,6 +230,6 @@ public partial class MainWindow
     }
     private sealed record WindowChoice(GameWindowState State)
     {
-        public string Label => $"PID {State.Identity.ProcessId} · {State.Client.Width}×{State.Client.Height} · DPI {State.Client.Dpi} · {System.IO.Path.GetDirectoryName(State.Identity.ImagePath)}";
+        public string Label => State.Label;
     }
 }

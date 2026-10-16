@@ -82,19 +82,33 @@ Add("Input rechecks focus at dispatch and never activates an unrelated window", 
     Check(f.Executor.Execute(a, CancellationToken.None).Status == "failed", "Lost focus was ignored");
     Check(f.Platform.Events.Count == 0, "Sent input to a different foreground window");
 });
+Add("Readiness accepts a minimized selected window and revalidates restored geometry before input", () =>
+{
+    var f=new Fixture();f.Profile=f.Profile with{Ensemble=new(new ButtonBinding(200,100,1280,960,144),new KeyBinding(0x42))};
+    f.Platform.State=f.Platform.State with{Visible=false,Foreground=false,Client=new(0,0,0,0,144)};
+    var start=Action(mode:"ensemble");Check(f.Executor.Prepare(start).Ready,"Minimized window prevented inert readiness");
+    Check(f.Platform.Events.Count==0,"Preparing a minimized window emitted input");
+    f.Platform.State=f.Platform.State with{Visible=true,Foreground=true,Client=new(20,30,1281,960,144)};
+    Check(f.Executor.Execute(start,CancellationToken.None).Status=="failed" && f.Platform.Events.Count==0,"Restoring at a new size bypassed calibration");
+    f.Platform.State=f.Platform.State with{Visible=false,Foreground=false,Client=new(0,0,0,0,144)};
+    var next=Action(mode:"ensemble",id:"restored");Check(f.Executor.Prepare(next).Ready,"Second minimized preparation failed");
+    f.Platform.State=f.Platform.State with{Visible=true,Foreground=true,Client=new(20,30,1280,960,144)};
+    Check(f.Executor.Execute(next,CancellationToken.None).Status=="executed","Restored target did not execute");
+});
 Add("A reused handle or changed process identity cannot receive a prepared action", () =>
 {
     var f = new Fixture(); var a = Action(); f.Executor.Prepare(a);
     f.Platform.State = f.Platform.State with { Identity = f.Platform.State.Identity with { ProcessStartedUtcTicks = 2 } };
     Check(f.Executor.Execute(a, CancellationToken.None).Status == "failed" && f.Platform.Events.Count == 0, "Reused window handle accepted");
 });
-Add("Permission mismatch and minimized windows fail without input", () =>
+Add("Permission mismatch blocks preparation and minimized dispatch never sends input", () =>
 {
     foreach (var permission in new[] { false, true })
     {
         var f = new Fixture(); var a = Action();
         f.Platform.State = f.Platform.State with { InputPermission = permission, Visible = !permission };
-        Check(!f.Executor.Prepare(a).Ready && f.Platform.Events.Count == 0, "Unusable window was prepared");
+        Check(f.Executor.Prepare(a).Ready==permission && f.Platform.Events.Count == 0,"Permission or minimized readiness was incorrect");
+        Check(f.Executor.Execute(a,CancellationToken.None).Status=="failed" && f.Platform.Events.Count==0,"Unusable window received input");
     }
 });
 Add("Mouse calibration follows window movement but expires after size or DPI changes", () =>

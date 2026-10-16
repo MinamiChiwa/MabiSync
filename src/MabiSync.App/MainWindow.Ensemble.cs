@@ -40,16 +40,19 @@ public partial class MainWindow
     private bool CanEditEnsemble => SelectedMode == "ensemble" && IsRoomHost && ViewConnected && !RoundActive;
     private object LocalCapabilities() => new { simulation = _inputRouter.UseSimulation, canStart = !IsManualEnsembleJoiner,
         canStop = SelectedMode != "emote", timingOffsetMs = TimingOffsetMs, readyMode = SelectedMode,
+        clockRoundTripMs=_roomClock.Estimate?.RoundTripMs??0,
+        windowActivationMs=_inputRouter.UseSimulation?0:1500,
         musicRole = IsManualEnsembleJoiner ? "joiner" : "initiator" };
     private void RefreshEnsembleRoster()
     {
         SyncEnsembleInputPermission();
         var ensemble = SelectedMode == "ensemble";
+        RosterSummaryText.Text=$"{_members.Count} 人 · 本轮 {_members.Count(m=>m.Selected)} 人";
         var visibility = ensemble ? Visibility.Visible : Visibility.Collapsed;
         GroupColumn.Visibility = OrderColumn.Visibility = EnsembleRoleColumn.Visibility = InstrumentColumn.Visibility = visibility;
         EnsembleRoleText.Visibility = EnsembleRosterHint.Visibility = visibility;
         JoinFeedbackColumn.Visibility = visibility;
-        RosterTitle.Text = ensemble ? "3  合奏分组与加入顺序" : "3  本轮成员";
+        RosterTitle.Text = ensemble ? "4  合奏分组与加入顺序" : "4  本轮成员";
         EnsembleRosterHint.Text = IsRoomHost ? "直接输入组号与顺序，选择乐器和身份；也可拖动昵称调整位置。右键可设置总指挥或移出成员。" : "找到自己的组别、顺序与乐器；发起者开始后，依序在游戏中加入。";
         MembersGrid.Columns.First(c => c is DataGridCheckBoxColumn).IsReadOnly = !IsRoomHost || RoundActive;
         if (ViewRoom is not { } room) { EnsembleRoleText.Text = "入房后由房主分组并指定发起者。"; return; }

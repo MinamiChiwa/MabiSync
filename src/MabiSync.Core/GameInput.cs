@@ -2,7 +2,13 @@ namespace MabiSync.Core;
 
 public sealed record GameWindowId(nint Handle, int ProcessId, long ProcessStartedUtcTicks, string ImagePath);
 public sealed record ClientArea(int Left, int Top, int Width, int Height, uint Dpi);
-public sealed record GameWindowState(GameWindowId Identity, ClientArea Client, bool Visible, bool Foreground, bool InputPermission);
+public sealed record GameWindowState(GameWindowId Identity, ClientArea Client, bool Visible, bool Foreground, bool InputPermission)
+{
+    public string Title {get;init;}="";
+    public bool Minimized {get;init;}
+    public string Label=>$"{(string.IsNullOrWhiteSpace(Title)?Path.GetFileName(Identity.ImagePath):Title)} · {Path.GetFileName(Identity.ImagePath)} · PID {Identity.ProcessId} · "+
+        (Minimized?"已最小化":$"{Client.Width}×{Client.Height} · DPI {Client.Dpi}");
+}
 [System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(KeyBinding), "key")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ButtonBinding), "button")]
@@ -65,7 +71,9 @@ public sealed class GameInputExecutor : IInputExecutor
             if (binding is ChatDraftBinding && (action.Mode != "emote" || action.Kind != "start")) throw new InvalidOperationException("预填指令回车仅用于表情触发。");
             if (binding is ChatDraftBinding && Volatile.Read(ref _chatDraftConfirmed) == 0) throw new InvalidOperationException("请在游戏聊天框预填指令，再重新点击本机就绪；每轮只发送一次回车。");
             var state = Inspect(p.Window, false);
-            ValidateBinding(binding, state.Client);
+            // Minimized client geometry is not usable. Readiness validates the saved
+            // binding itself; restored geometry is checked again before dispatch.
+            ValidateBinding(binding,!state.Visible && binding is ButtonBinding b?new(0,0,b.ClientWidth,b.ClientHeight,b.Dpi):state.Client);
             lock (_gate) _prepared[action.Id] = new(p.Window, binding is ChatDraftBinding ? new KeyBinding(13) : binding, action.Kind == "stop" && toggle, binding is ChatDraftBinding);
             return new(true, null);
         }
@@ -134,7 +142,7 @@ public sealed class GameInputExecutor : IInputExecutor
     {
         var state = _platform.Inspect(window);
         if (state is null || !SameWindow(state.Identity, window)) throw new InvalidOperationException("游戏窗口或进程已改变，请重新选择。");
-        if (!state.Visible || state.Client.Width <= 0 || state.Client.Height <= 0) throw new InvalidOperationException("请恢复游戏窗口，不能向最小化窗口发送输入。");
+        if (foreground && (!state.Visible || state.Client.Width <= 0 || state.Client.Height <= 0)) throw new InvalidOperationException("游戏窗口尚未恢复，本次未发送动作。");
         if (!state.InputPermission) throw new InvalidOperationException("工具与游戏输入权限不匹配；请以相同权限运行。");
         if (foreground && !state.Foreground) throw new InvalidOperationException("游戏不在前台，本次未发送动作。");
         return state;
@@ -150,7 +158,7 @@ public sealed class GameInputExecutor : IInputExecutor
         }
         else if (binding is ButtonBinding b)
         {
-            if (b.X < 0 || b.Y < 0 || b.X >= b.ClientWidth || b.Y >= b.ClientHeight || b.ClientWidth != area.Width || b.ClientHeight != area.Height || b.Dpi != area.Dpi)
+            if (b.X < 0 || b.Y < 0 || b.Dpi==0 || b.X >= b.ClientWidth || b.Y >= b.ClientHeight || b.ClientWidth != area.Width || b.ClientHeight != area.Height || b.Dpi != area.Dpi)
                 throw new InvalidOperationException("按钮校准已失效，请按当前游戏客户区尺寸和DPI重新校准。");
         }
         else throw new InvalidOperationException("未知本机绑定类型。");

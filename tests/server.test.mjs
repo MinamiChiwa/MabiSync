@@ -127,6 +127,7 @@ test('room distributes sanitized score summaries without accepting automatic tim
 test('observation capabilities are advertised and an initiator stays first in its own group', async t => {
   const {client}=await setup(t); const host=await client(),member=await client();
   assert.equal(host.hello.features.gameObservation,1);
+  assert.equal(host.hello.features.adaptiveTiming,2);
   await host.create();await member.join(host.identity.code);
   host.send({type:'set-ensemble-role',memberId:member.identity.memberId,musicRole:'initiator'});
   const state=await host.wait(m=>m.type==='state' && m.room.members.find(p=>p.id===member.identity.memberId)?.ensembleRole==='initiator');
@@ -264,7 +265,7 @@ test('music completion consumes participant readiness before another start can b
   assert.equal((await host.next('error')).code, 'MEMBER_NOT_READY');
 });
 
-test('manual lead is bounded and the shared round waits for the latest local trigger', async t => {
+test('manual lead is bounded and a short countdown grows to accommodate advances', async t => {
   const { client } = await setup(t); const host = await client(); await host.create();
   const caps = { simulation: true, canStart: true, canStop: false };
   host.send({ type: 'set-ready', ready: true, capabilities: { ...caps, timingOffsetMs: -2001 } });
@@ -272,7 +273,13 @@ test('manual lead is bounded and the shared round waits for the latest local tri
   host.send({ type: 'set-ready', ready: true, capabilities: { ...caps, timingOffsetMs: -1500 } });
   await host.wait(m => m.type === 'state' && m.room.members[0].ready);
   host.send({ type: 'prepare', mode: 'emote', countdownMs: 1000, participantIds: [host.identity.memberId] });
-  assert.equal((await host.next('error')).code, 'COUNTDOWN_BEFORE_LOCAL_TRIGGER');
+  const advanced=(await host.wait(m=>m.type==='prepare-action'||m.type==='error'));
+  assert.equal(advanced.type,'prepare-action');
+  const planned=await host.wait(m=>m.type==='state' && m.room.performance?.phase==='preparing');
+  assert.equal(planned.room.performance.requestedCountdownMs,1000);
+  assert.ok(planned.room.performance.countdownMs>=2000);
+  assert.ok(planned.room.performance.earliestStartServerMs-planned.serverNowMs>400);
+  host.send({type:'cancel'});await host.next('cancel-action');
   host.send({ type: 'set-ready', ready: true, capabilities: { ...caps, timingOffsetMs: -200 } });
   await host.wait(m => m.type === 'state' && m.room.members[0].capabilities.timingOffsetMs === -200);
   const guest = await client(); await guest.join(host.identity.code);

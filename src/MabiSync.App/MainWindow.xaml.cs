@@ -38,6 +38,7 @@ public partial class MainWindow : Window
         _inputRouter = new(new SimulationInput(_clock), _gameInput) { StartsEnabled = false };
         _scheduler = new(_clock, _roomClock, _inputRouter);
         _client = new(_clock, _roomClock, _scheduler);
+        _client.PrepareLocalAsync=PrepareWindowForRoundAsync;
         _client.Changed += QueueRefresh;
         _tunnel.Changed += state => Dispatcher.BeginInvoke(() => TunnelChanged(state));
         _client.Notice += message => Dispatcher.BeginInvoke(() => MessageText.Text = Friendly(message));
@@ -125,11 +126,12 @@ public partial class MainWindow : Window
         var active = performance is { ValueKind: JsonValueKind.Object } && performance.Value.GetProperty("phase").GetString() is not ("cancelled" or "stopped");
         if (active) ModeBox.SelectedIndex = performance!.Value.GetProperty("mode").GetString() switch { "independent" or "ensemble" => 1, _ => 0 };
         ModeBox.IsEnabled = !active && (ViewSession is null || IsRoomHost) && _rosterEdits==0;
-        TimingOffsetSlider.IsEnabled = ResetTimingButton.IsEnabled = !active;
+        TimingOffsetSlider.IsEnabled = TimingOffsetBox.IsEnabled = ResetTimingButton.IsEnabled = !active;
         var isHost = ViewSession is { } role && ViewRoom?.GetProperty("hostId").GetString() == role.MemberId;
         StopChoice.IsEnabled = DurationBox.IsEnabled = !active && (isHost || ViewSession is null);
         RefreshInputs(active);
         var emote = SelectedMode == "emote";
+        ModeSummaryText.Text=emote?"表情动作":"合奏";
         var musicVisibility = emote ? Visibility.Collapsed : Visibility.Visible;
         LeaderControls.Visibility = StopControls.Visibility = StopButton.Visibility = ContinueButton.Visibility = musicVisibility;
         DurationControls.Visibility = SelectedStopRule == MusicStopRule.Duration ? Visibility.Visible : Visibility.Collapsed;
@@ -146,7 +148,9 @@ public partial class MainWindow : Window
         var host = ViewSession is { } identity && ViewRoom?.GetProperty("hostId").GetString() == identity.MemberId;
         CountdownBox.IsEnabled = !active && host && ViewConnected;
         CountdownHint.Text = host && !active ? _countdownError ?? "倒计时支持 1–60 秒；开始时自动激活所选游戏窗口。" :
-            active && performance!.Value.TryGetProperty("countdownMs", out var ms) ? $"本轮倒计时 {ms.GetInt32() / 1000.0:0.###} 秒。" : "";
+            active && performance!.Value.TryGetProperty("countdownMs", out var ms) ?
+                $"本轮倒计时 {ms.GetInt32() / 1000.0:0.###} 秒。" +
+                (performance.Value.TryGetProperty("requestedCountdownMs",out var requested) && requested.GetInt32()<ms.GetInt32()?" 已为提前量及网络准备自动补足时间。":"") : "";
         StartButton.IsEnabled &= _countdownError is null;
         StartButton.IsEnabled &= _rosterEdits==0;
         StartButton.IsEnabled &= emote || SelectedStopRule != MusicStopRule.Duration || _musicDurationError is null;
@@ -165,8 +169,8 @@ public partial class MainWindow : Window
         RefreshMusicStatus(p);
         RefreshNextStep();
         RefreshCountdown(p);RefreshFeedback();
-        PhaseText.Foreground=ColorBrush("#245AC1");
-        if(ViewSession is not null && !ViewConnected){PhaseText.Text="房间连接已中断";PhaseText.Foreground=ColorBrush("#AE2637");return;}
+        PhaseText.Foreground=ColorBrush("#9DC7FF");
+        if(ViewSession is not null && !ViewConnected){PhaseText.Text="房间连接已中断";PhaseText.Foreground=ColorBrush("#FFAFB9");return;}
         if (p is not { ValueKind: JsonValueKind.Object }) { PhaseText.Text = ViewSession is null ? "连接房间" : "准备本轮动作"; return; }
         var value = p.Value; var phase = value.GetProperty("phase").GetString();
         var emote = value.GetProperty("mode").GetString() == "emote";
@@ -189,8 +193,8 @@ public partial class MainWindow : Window
             "stopped" => "本轮已结束",
             _ => "等待准备"
         };
-        if(phase=="interrupted" || localReceipt?.Status is "failed" or "missed")PhaseText.Foreground=ColorBrush("#AE2637");
-        else if(phase=="stopped")PhaseText.Foreground=ColorBrush("#196944");
+        if(phase=="interrupted" || localReceipt?.Status is "failed" or "missed")PhaseText.Foreground=ColorBrush("#FFAFB9");
+        else if(phase=="stopped")PhaseText.Foreground=ColorBrush("#86E1B2");
     }
     private async Task Run(Button? button, Func<Task> operation)
     {
@@ -222,17 +226,14 @@ public partial class MainWindow : Window
         await _tunnel.StartAsync(executable);
     });
     private async void ClosePublicClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {await _tunnel.StopAsync();Feedback("公网连接已关闭，房间仍保留。",FeedbackTone.Warning);});
-    private async void CopyPublicClick(object sender, RoutedEventArgs e) => await Run((Button)sender, async () =>
-    {
-        if (_tunnel.State is { Status: "ready", Endpoint: { } endpoint } && ViewSession is { } session) { await ClipboardCopy.WriteAsync(new RoomInvitation(endpoint, session.Code).ToString(), Clipboard.SetText); MessageText.Text = "已复制完整邀请。另一台电脑粘贴后点“加入邀请”，无需分别填写地址和房间码。"; }
-    });
-    private async void ReadyClick(object sender, RoutedEventArgs e) => await Run((Button)sender, () =>
+    private async void CopyPublicClick(object sender,RoutedEventArgs e)=>await Run((Button)sender,CopyInvitationAsync);
+    private async void ReadyClick(object sender, RoutedEventArgs e) => await Run((Button)sender, async () =>
     {
         var self = ViewRoom!.Value.GetProperty("members").EnumerateArray().First(m => m.GetProperty("id").GetString() == ViewSession!.MemberId);
         var ready = !self.GetProperty("ready").GetBoolean();
-        if (ready) { ValidateLocalReadiness(); _inputRouter.ReadyMode = SelectedMode; _inputRouter.StartsEnabled = !IsManualEnsembleJoiner; }
+        if (ready) { await _client.RefreshClockAsync(); ValidateLocalReadiness(); _inputRouter.ReadyMode = SelectedMode; _inputRouter.StartsEnabled = !IsManualEnsembleJoiner; }
         else InvalidateReadiness();
-        return _client.SendAsync(new { type = "set-ready", ready, capabilities = LocalCapabilities() });
+        await _client.SendAsync(new { type = "set-ready", ready, capabilities = LocalCapabilities() });
     });
     private async void LeaderChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -248,7 +249,9 @@ public partial class MainWindow : Window
         if(participants.Length==0)throw new InvalidOperationException("请先选择本轮参与者。");
         var waiting=_members.Where(m=>m.Selected && m.Id!=ViewSession?.MemberId && !m.Ready).Select(m=>m.Nickname).ToArray();
         if(waiting.Length>0)throw new InvalidOperationException("等待就绪："+string.Join("、",waiting)+"。");
-        if(!_inputRouter.UseSimulation)await _gamePlatform.ActivateAsync(SelectedWindow??throw new InvalidOperationException("请先选择游戏窗口。"),_calibrationCancellation.Token);
+        MessageText.Text="正在校准本轮联机时间……";
+        await _client.RefreshClockAsync();
+        if(!_inputRouter.UseSimulation && participants.Contains(ViewSession?.MemberId))await _gamePlatform.ActivateAsync(SelectedWindow??throw new InvalidOperationException("请先选择游戏窗口。"),_calibrationCancellation.Token);
         if (participants.Contains(ViewSession?.MemberId))
         {
             ValidateLocalReadiness(); _inputRouter.ReadyMode = mode; _inputRouter.StartsEnabled = !IsManualEnsembleJoiner;

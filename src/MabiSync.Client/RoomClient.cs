@@ -9,7 +9,7 @@ namespace MabiSync.Client;
 
 public sealed record SessionIdentity(string Code, string MemberId, string Token, string ServerEpoch, string Endpoint);
 
-public sealed class RoomClient : IAsyncDisposable
+public sealed partial class RoomClient : IAsyncDisposable
 {
     private sealed record Snapshot(JsonElement Value);
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true,
@@ -21,6 +21,7 @@ public sealed class RoomClient : IAsyncDisposable
     private double _lastInboundMs;
     private readonly SemaphoreSlim _send = new(1, 1), _lifecycle = new(1, 1);
     private readonly ConcurrentDictionary<int, double> _probes = new();
+    private readonly ConcurrentDictionary<int,TaskCompletionSource<bool>> _freshProbes=new();
     private readonly ConcurrentDictionary<string, ScheduledAction> _prepared = new();
     private readonly ConcurrentDictionary<string, byte> _committed = new();
     private readonly Channel<ActionReceipt> _receipts = Channel.CreateUnbounded<ActionReceipt>(new() { SingleReader = true });
@@ -57,6 +58,7 @@ public sealed class RoomClient : IAsyncDisposable
         _inactivityTimeoutMs=(inactivityTimeout??TimeSpan.FromSeconds(10)).TotalMilliseconds;
         _scheduler.Receipt += QueueReceipt;
         _receiptPump = Task.Run(ReceiptLoop);
+        _preparationPump=Task.Run(PreparationLoop);
     }
     private void QueueReceipt(ActionReceipt value) => _receipts.Writer.TryWrite(value);
     public Task<SessionIdentity> CreateRoomAsync(string nickname, CancellationToken token = default) =>
@@ -69,6 +71,37 @@ public sealed class RoomClient : IAsyncDisposable
         await ConfirmAsync(new{type,memberId,group,order,musicRole,instrument,selected}).ConfigureAwait(false);
     }
     public Task SetRoomModeAsync(string mode)=>ConfirmAsync(new{type="set-room-mode",mode});
+    /// <summary>Collect a short burst before readiness/start; replies stay on the receive loop.</summary>
+    public async Task RefreshClockAsync(CancellationToken token=default)
+    {
+        var requests=new List<(int Id,TaskCompletionSource<bool> Reply)>();
+        using var limit=CancellationTokenSource.CreateLinkedTokenSource(token,_connection?.Token??CancellationToken.None);
+        limit.CancelAfter(TimeSpan.FromSeconds(4));
+        try {
+            for(var i=0;i<6;i++) {
+                var reply=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var id=Interlocked.Increment(ref _syncId);_freshProbes[id]=reply;requests.Add((id,reply));
+                await SendProbeAsync(id,limit.Token).ConfigureAwait(false);
+                if(i<5)await Task.Delay(40,limit.Token).ConfigureAwait(false);
+            }
+            await Task.WhenAll(requests.Select(r=>r.Reply.Task)).WaitAsync(limit.Token).ConfigureAwait(false);
+        } catch(OperationCanceledException) when(!token.IsCancellationRequested && Connected && _roomClock.Estimate is not null) {
+            // Keep a usable estimate if only the fresh burst met temporary packet loss.
+        } finally {
+            foreach(var request in requests){_freshProbes.TryRemove(request.Id,out _);_probes.TryRemove(request.Id,out _);}
+        }
+    }
+    private async Task SendProbeAsync(int id,CancellationToken token)
+    {
+        await _send.WaitAsync(token).ConfigureAwait(false);
+        try {
+            var ws=_socket;
+            if(ws?.State!=WebSocketState.Open)throw new IOException("Service is disconnected");
+            var t1=_clock.NowMs;_probes[id]=t1;
+            var bytes=JsonSerializer.SerializeToUtf8Bytes(new{type="sync",id,t1});
+            await ws.SendAsync(bytes.AsMemory(),WebSocketMessageType.Text,true,token).ConfigureAwait(false);
+        } finally {_send.Release();}
+    }
     private async Task ConfirmAsync(object message)
     {
         var requestId=Guid.NewGuid().ToString("N");var response=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -152,6 +185,7 @@ public sealed class RoomClient : IAsyncDisposable
     }
     private async Task DisconnectCore()
     {
+        CancelPreparations();
         FailRequests();
         _roomRequest?.TrySetException(new IOException("Service is disconnected"));
         _connected = false; _connection?.Cancel(); _socket?.Abort();
@@ -186,18 +220,8 @@ public sealed class RoomClient : IAsyncDisposable
                     FireNotice("房间连接已中断，请检查网络并在高级连接中重连。公网房主可重新建立连接并分享新邀请。");FireChanged();return;
                 }
                 foreach (var probe in _probes) if (_clock.NowMs - probe.Value > 10_000) _probes.TryRemove(probe.Key, out _);
-                await _send.WaitAsync(token).ConfigureAwait(false);
-                try
-                {
-                    var ws = _socket;
-                    if (ws?.State != WebSocketState.Open) return;
-                    var id = Interlocked.Increment(ref _syncId); var t1 = _clock.NowMs;
-                    _probes[id] = t1;
-                    var bytes = JsonSerializer.SerializeToUtf8Bytes(new { type = "sync", id, t1 });
-                    await ws.SendAsync(bytes.AsMemory(), WebSocketMessageType.Text, true, token).ConfigureAwait(false);
-                }
-                finally { _send.Release(); }
-                await Task.Delay(initial++ < 5 ? 80 : 1000, token).ConfigureAwait(false);
+                await SendProbeAsync(Interlocked.Increment(ref _syncId),token).ConfigureAwait(false);
+                await Task.Delay(initial++ < 7 ? 60 : 500, token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) { }
@@ -230,6 +254,7 @@ public sealed class RoomClient : IAsyncDisposable
         catch (Exception error) { _hello?.TrySetException(error); FireNotice("Connection ended: " + error.Message); }
         finally
         {
+            CancelPreparations();
             FailRequests();
             _roomRequest?.TrySetException(new IOException("Service is disconnected"));
             _connected = false; _hello?.TrySetException(new IOException("Handshake or connection ended"));
@@ -251,6 +276,7 @@ public sealed class RoomClient : IAsyncDisposable
                 if (!Guid.TryParse(epoch, out _)) throw new InvalidDataException("Invalid service epoch");
                 if (_epoch != epoch)
                 {
+                    CancelPreparations();
                     _epoch = epoch; _scheduler.ChangeEpoch(epoch); _prepared.Clear(); _committed.Clear(); _activeSession = null; _snapshot = null;
                     if (_session?.ServerEpoch != epoch) _session = null;
                 }
@@ -261,7 +287,11 @@ public sealed class RoomClient : IAsyncDisposable
                 _connected = true; _hello?.TrySetResult(true); FireChanged(); break;
             case "sync":
                 if (root.GetProperty("serverEpoch").GetString() == _epoch && _probes.TryRemove(root.GetProperty("id").GetInt32(), out var t1) && root.GetProperty("t1").GetDouble() == t1)
-                { _roomClock.AddSample(t1, root.GetProperty("t2").GetDouble(), root.GetProperty("t3").GetDouble(), t4); FireChanged(); }
+                {
+                    var accepted=_roomClock.AddSample(t1,root.GetProperty("t2").GetDouble(),root.GetProperty("t3").GetDouble(),t4);
+                    if(_freshProbes.TryRemove(root.GetProperty("id").GetInt32(),out var reply))reply.TrySetResult(accepted);
+                    FireChanged();
+                }
                 break;
             case "session":
                 if (root.GetProperty("serverEpoch").GetString() != _epoch) break;
@@ -274,23 +304,20 @@ public sealed class RoomClient : IAsyncDisposable
             case "prepare-action":
             {
                 var action = root.GetProperty("action").Deserialize<ScheduledAction>(Json)! with { Mode = root.GetProperty("mode").GetString()! };
-                var preparation = Session is null ? new InputPreparation(false, "Not in a room") :
-                    _prepared.TryGetValue(action.Id, out var existing) ? new(existing == action, existing == action ? null : "Conflicting prepared action") : _scheduler.Prepare(action);
-                if (preparation.Ready) { _prepared[action.Id] = action; _activeSession = action.SessionId; _activeMode = action.Mode; }
-                await SendAsync(new { type = "action-ready", actionId = action.Id, ready = preparation.Ready, error = preparation.Error }).ConfigureAwait(false); break;
+                QueuePreparation(action,false);break;
             }
             case "prepare-session":
             {
                 var sessionId = root.GetProperty("sessionId").GetString()!;
                 var mode = root.GetProperty("mode").GetString()!;
                 var epoch = root.GetProperty("serverEpoch").GetString()!;
-                var preparation = Session is null || mode != "ensemble" ? new InputPreparation(false, "Invalid manual join session") :
-                    _scheduler.ValidateMusicStopPath(sessionId, epoch, mode);
-                if (preparation.Ready) { _activeSession = sessionId; _activeMode = mode; }
-                await SendAsync(new { type = "session-ready", sessionId, ready = preparation.Ready, error = preparation.Error }).ConfigureAwait(false); break;
+                QueuePreparation(new("manual:"+sessionId,sessionId,"stop",0,epoch){Mode=mode},true);break;
             }
             case "cancel-session":
-                if (root.GetProperty("serverEpoch").GetString() == _epoch && root.GetProperty("sessionId").GetString() == _activeSession) _activeSession = null;
+                if (root.GetProperty("serverEpoch").GetString() == _epoch) {
+                    var cancelledSession=root.GetProperty("sessionId").GetString();CancelPreparations(sessionId:cancelledSession);
+                    if(cancelledSession==_activeSession)_activeSession=null;
+                }
                 break;
             case "commit-action":
             {
@@ -306,7 +333,9 @@ public sealed class RoomClient : IAsyncDisposable
                 break;
             }
             case "cancel-action":
-                if (root.GetProperty("serverEpoch").GetString() == _epoch) _scheduler.CancelAction(root.GetProperty("actionId").GetString()!);
+                if (root.GetProperty("serverEpoch").GetString() == _epoch) {
+                    var cancelledAction=root.GetProperty("actionId").GetString()!;CancelPreparations(actionId:cancelledAction);_scheduler.CancelAction(cancelledAction);
+                }
                 break;
             case "stop-now":
                 if (root.GetProperty("serverEpoch").GetString() == _epoch && root.GetProperty("sessionId").GetString() == _activeSession)
@@ -314,6 +343,7 @@ public sealed class RoomClient : IAsyncDisposable
                 break;
             case "room-closed": case "left": case "kicked":
                 if(root.GetProperty("serverEpoch").GetString()!=_epoch)break;
+                CancelPreparations();
                 _session = null; _snapshot = null; _activeSession = null; _scheduler.RoomExited();
                 var needsAcknowledgment=type=="room-closed" && root.TryGetProperty("closureId",out var closureId);
                 if(needsAcknowledgment) {
@@ -358,6 +388,7 @@ public sealed class RoomClient : IAsyncDisposable
                 if (receipt.ReportToRoom && Connected && receipt.SessionId == _activeSession) await SendAsync(new { type = "receipt", actionId = receipt.ActionId, status = receipt.Status,
                     actualServerMs = receipt.ActualServerMs, detail = receipt.Detail, simulated = receipt.Simulated }).ConfigureAwait(false);
             }
+            catch (Exception) when(!Connected || _connection?.IsCancellationRequested==true) { /* Keep expected offline receipts locally. */ }
             catch (Exception error) { FireNotice("Receipt retained locally: " + error.GetType().Name); }
             if (ReceiptReported is { } handlers) foreach (Action<ActionReceipt> handler in handlers.GetInvocationList())
                 try { handler(receipt); } catch (Exception error) { Trace.WriteLine(error.GetType().Name); }
@@ -378,6 +409,7 @@ public sealed class RoomClient : IAsyncDisposable
         if (_disposed) return;
         _disposed = true; _scheduler.Receipt -= QueueReceipt;
         await DisconnectAsync().ConfigureAwait(false);
+        _preparationQueue.Writer.TryComplete();await _preparationPump.ConfigureAwait(false);
         _receipts.Writer.TryComplete(); await _receiptPump.ConfigureAwait(false);
         _send.Dispose(); _lifecycle.Dispose();
     }

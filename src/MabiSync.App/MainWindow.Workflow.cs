@@ -30,8 +30,8 @@ public partial class MainWindow
         LeaveRoomButton.Content=host?"关闭房间":"离开房间";
         PublicStateText.Visibility = Show(!inRoom || host && _tunnel.State.Status != "off");
         RosterCard.Visibility = Show(inRoom);
-        LocalActionCard.Visibility = Show(inRoom);
-        LocalActionTitle.Text = IsManualEnsembleJoiner ? "4  本机停止设置" : "4  本机动作";
+        LocalActionCard.Visibility = System.Windows.Visibility.Visible;
+        LocalActionTitle.Text = IsManualEnsembleJoiner ? "3  本机停止设置" : "3  本机动作";
         ReadyButton.Style = (Style)FindResource(host ? "SecondaryAction" : "PrimaryAction");
     }
 
@@ -49,7 +49,7 @@ public partial class MainWindow
                 ? IsRoomHost ? "请选择全员停止，或继续演奏。" : "等待房主决定停止或继续。"
                 : IsManualEnsembleJoiner ? self?.JoinState == "correct" ? "加入顺序正确，可继续在游戏中演奏。"
                     : self?.JoinState == "wrong" ? "加入顺序与安排不符，请与本组发起者确认。" : "靠近本组发起者，按成员列表中的顺序加入。"
-                : _inputRouter.UseSimulation ? "本轮运行模拟，可在执行记录中查看结果。" : "请切回所选游戏窗口。";
+                : _inputRouter.UseSimulation ? "本轮运行模拟，可在执行记录中查看结果。" : "开始前自动激活所选游戏窗口，请保持游戏在前台。";
             return;
         }
         if (!_inputRouter.UseSimulation)

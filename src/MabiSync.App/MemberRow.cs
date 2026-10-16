@@ -18,14 +18,14 @@ internal sealed class MemberRow(string id,Action<MemberRow>? selectionChanged=nu
     public bool CanEdit {get;private set;}
     public bool IsSelf {get;private set;}
     public System.Windows.FontWeight NameWeight=>IsSelf?System.Windows.FontWeights.SemiBold:System.Windows.FontWeights.Normal;
-    public Brush NameBrush=>Brush(IsSelf?"#245AC1":"#24334C");
+    public Brush NameBrush=>Brush(IsSelf?"#9DC7FF":"#E2E8F0");
     public bool ReadOnly=>!CanEdit;
     public string JoinState {get;private set;}="unconfirmed";
     public string JoinFeedback {get;private set;}="等待游戏事件核对";
-    public Brush JoinBrush=>Brush(JoinState switch{"correct"=>"#176B42","wrong"=>"#B42332","pending"=>"#875B0A",_=>"#4D607D"});
-    public Brush JoinBackground=>Brush(JoinState switch{"correct"=>"#E4F5EB","wrong"=>"#FDECEF","pending"=>"#FFF3D8",_=>"#ECF1F8"});
-    public Brush StatusBrush=>Brush(Status switch{"已就绪"=>"#176B42","未就绪"=>"#B42332","房主"=>"#245AC1",_=>"#5C687A"});
-    public Brush StatusBackground=>Brush(Status switch{"已就绪"=>"#E4F5EB","未就绪"=>"#FDECEF","房主"=>"#E8F0FF",_=>"#EDF0F5"});
+    public Brush JoinBrush=>Brush(JoinState switch{"correct"=>"#86E1B2","wrong"=>"#FFAFB9","pending"=>"#F6D58B",_=>"#C2CEE0"});
+    public Brush JoinBackground=>Brush(JoinState switch{"correct"=>"#173D32","wrong"=>"#482730","pending"=>"#44391F",_=>"#2A3547"});
+    public Brush StatusBrush=>Brush(Status switch{"已就绪"=>"#86E1B2","未就绪"=>"#FFAFB9","房主"=>"#9DC7FF",_=>"#B6C3D5"});
+    public Brush StatusBackground=>Brush(Status switch{"已就绪"=>"#173D32","未就绪"=>"#482730","房主"=>"#223D60",_=>"#2A3547"});
     public string GroupText=>$"第 {Group} 组";
     public string OrderText=>Order.ToString();
     public string EnsembleRoleText=>EnsembleRole=="initiator"?"发起者":"参与者";

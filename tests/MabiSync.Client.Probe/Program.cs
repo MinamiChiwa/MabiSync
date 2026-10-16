@@ -6,6 +6,8 @@ if (args.Length is < 1 or > 2) return 2;
 if (args.Length == 2 && args[1] == "music-flow") return await MusicRoomFlow.Run(args[0]);
 if (args.Length == 2 && args[1] == "room-setup") return await RoomSetupFlow.Run(args[0]);
 if (args.Length == 2 && args[1] == "emote-flow") return await EmoteRoomFlow.Run(args[0]);
+if(args.Length==2 && args[1]=="timing-flow")return await TimingRoomFlow.Run(args[0]);
+if(args.Length==2 && args[1]=="focus-flow")return await FocusRoomFlow.Run(args[0]);
 if(args.Length==2 && args[1]=="silent-room") {
     var local=new StopwatchClock();var roomTime=new RoomClock(local);var simulated=new SimulationInput(local);
     using var schedule=new ActionScheduler(local,roomTime,simulated);

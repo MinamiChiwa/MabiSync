@@ -71,6 +71,7 @@ try {
   assert.equal(health.features?.firstCycleStop, 1);
   assert.equal(health.features?.rosterEditing, 1);
   assert.equal(health.features?.roomClosure, 1);
+  assert.equal(health.features?.adaptiveTiming, 2);
   assert.match(health.serverEpoch, /^[0-9a-f-]{36}$/);
   console.log(JSON.stringify({ packagedServiceHealthy: true, node: process.version, architecture: process.arch, gameInputSent: false }));
 } finally { await service.close(); }
