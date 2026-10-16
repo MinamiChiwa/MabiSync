@@ -2,7 +2,7 @@
 
 作者：**南千和** · [爱发电](https://afdian.com/a/minamichiwa) · [Patreon](https://patreon.com/chiwaminami)
 
-和朋友一起触发表情动作，或让多个合奏小组按同一个倒计时开始演奏。支持公网建房、成员分组与排序、乐器分工，以及房主统一停止演奏。
+和朋友一起触发表情动作，或让多个合奏小组按同一个倒计时开始演奏。支持公网建房、成员分组与排序、乐器分工，以及房主统一停止演奏。本工具由AI辅助制作。
 
 **[下载 Windows x64 发布包](https://github.com/MinamiChiwa/MabiSync/releases/latest)** · [完整使用说明](docs/guide.zh-CN.txt)
 
