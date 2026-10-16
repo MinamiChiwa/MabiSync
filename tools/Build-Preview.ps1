@@ -1,5 +1,5 @@
 #requires -Version 7.4
-param([string]$NodePath, [string]$CloudflaredPath, [string]$Label='0.1.0-preview.10', [switch]$SkipChecks, [switch]$Release)
+param([string]$NodePath, [string]$CloudflaredPath, [string]$NodeLicensePath, [string]$CloudflaredLicensePath, [string]$Label='0.1.2-preview.7', [switch]$SkipChecks, [switch]$Release)
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
@@ -31,7 +31,8 @@ try {
     $mabiThirdParty = Join-Path $mabiDocs 'THIRD-PARTY'
     New-Item -ItemType Directory -Path $mabiThirdParty | Out-Null
     $mabiLicenseUrl = 'https://raw.githubusercontent.com/nodejs/node/'+$mabiNodeVersion+'/LICENSE'
-    Invoke-WebRequest -UseBasicParsing -Uri $mabiLicenseUrl -OutFile (Join-Path $mabiThirdParty 'node-LICENSE.txt')
+    if($NodeLicensePath){Copy-Item -LiteralPath (Resolve-Path -LiteralPath $NodeLicensePath).Path -Destination (Join-Path $mabiThirdParty 'node-LICENSE.txt')}
+    else{Invoke-WebRequest -UseBasicParsing -Uri $mabiLicenseUrl -OutFile (Join-Path $mabiThirdParty 'node-LICENSE.txt')}
     if ((Get-Item -LiteralPath (Join-Path $mabiThirdParty 'node-LICENSE.txt')).Length -lt 1000) { throw 'Node license response is incomplete' }
     $mabiTunnelVersion = $null
     if ($CloudflaredPath) {
@@ -39,7 +40,8 @@ try {
         $mabiTunnelVersionText = & $CloudflaredPath --version
         if ($LASTEXITCODE -ne 0 -or $mabiTunnelVersionText -notmatch 'cloudflared version (\d{4}\.\d+\.\d+)') { throw 'Unsupported cloudflared runtime' }
         $mabiTunnelVersion = $Matches[1]
-        Invoke-WebRequest -UseBasicParsing -Uri ('https://raw.githubusercontent.com/cloudflare/cloudflared/'+$mabiTunnelVersion+'/LICENSE') -OutFile (Join-Path $mabiThirdParty 'cloudflared-LICENSE.txt')
+        if($CloudflaredLicensePath){Copy-Item -LiteralPath (Resolve-Path -LiteralPath $CloudflaredLicensePath).Path -Destination (Join-Path $mabiThirdParty 'cloudflared-LICENSE.txt')}
+        else{Invoke-WebRequest -UseBasicParsing -Uri ('https://raw.githubusercontent.com/cloudflare/cloudflared/'+$mabiTunnelVersion+'/LICENSE') -OutFile (Join-Path $mabiThirdParty 'cloudflared-LICENSE.txt')}
         if ((Get-Item -LiteralPath (Join-Path $mabiThirdParty 'cloudflared-LICENSE.txt')).Length -lt 1000) { throw 'Cloudflared license response is incomplete' }
     }
     & dotnet publish src/MabiSync.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false -o $mabiApp
@@ -69,7 +71,7 @@ try {
     $mabiFileList = @(Get-ChildItem -LiteralPath $mabiOutput -Recurse -File | Sort-Object FullName | ForEach-Object {
         @{ path=$_.FullName.Substring($mabiOutput.Length+1).Replace('\','/'); bytes=$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
     })
-    @{ product='MabiSync'; label=$Label; architecture='win-x64'; layoutVersion=2; sourceCommit=$mabiCommit; sourceDirty=$mabiDirty; nodeVersion=$mabiNodeVersion; tunnelIncluded=[bool]$CloudflaredPath; cloudflaredVersion=$mabiTunnelVersion; npcapBundled=$false; createdUtc=[DateTime]::UtcNow.ToString('o'); defaultSimulation=$false; gameFirstCycleStopVerified=$false; files=$mabiFileList } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $mabiApp 'package-manifest.json') -Encoding utf8
+    @{ product='MabiSync'; label=$Label; architecture='win-x64'; layoutVersion=2; sourceCommit=$mabiCommit; sourceDirty=$mabiDirty; nodeVersion=$mabiNodeVersion; tunnelIncluded=[bool]$CloudflaredPath; cloudflaredVersion=$mabiTunnelVersion; defaultProvider='community'; defaultServer='wss://47.111.3.134/'; npcapBundled=$false; createdUtc=[DateTime]::UtcNow.ToString('o'); defaultSimulation=$false; gameFirstCycleStopVerified=$false; files=$mabiFileList } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $mabiApp 'package-manifest.json') -Encoding utf8
     & "$PSScriptRoot/Test-Preview.ps1" -Directory $mabiOutput
     if ($LASTEXITCODE -ne 0) { throw 'Package verification failed' }
     $mabiZip = $mabiOutput+'.zip'

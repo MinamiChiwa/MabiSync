@@ -13,9 +13,8 @@ public partial class MainWindow
     private async Task CopyInvitationAsync()
     {
         if(_copyingInvitation)return;
-        if(_tunnel.State is not{Status:"ready",Endpoint:{} endpoint} || ViewSession is not{} session)
+        if(CurrentInvitation is not{} invitation)
             throw new InvalidOperationException("公网邀请尚未就绪，请等待连接建立后重试。");
-        var invitation=new RoomInvitation(endpoint,session.Code).ToString();
         _copyingInvitation=true;CopyStatusText.Text="正在复制邀请……";CopyStatusText.Visibility=Visibility.Visible;
         FallbackInvitationPanel.Visibility=Visibility.Collapsed;
         try {
@@ -34,7 +33,7 @@ public partial class MainWindow
     private void RefreshCopyStatus()
     {
         CopyPublicButton.Content=_copyingInvitation?"正在复制…":_clock.NowMs<_copiedInvitationUntil?"已复制 ✓":"复制邀请";
-        if(ViewSession is null || _tunnel.State.Status!="ready"){
+        if(ViewSession is null || !ShareReady){
             _copiedInvitationUntil=0;CopyStatusText.Visibility=Visibility.Collapsed;
             FallbackInvitationPanel.Visibility=Visibility.Collapsed;FallbackInvitationBox.Clear();
         }

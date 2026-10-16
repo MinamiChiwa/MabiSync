@@ -16,6 +16,7 @@ public partial class MainWindow
     {
         if (_captureChannels is not null) { _captureChannels.Activate(); return; }
         _captureChannels = new(SelectedWindow, _gameObservation) { Owner = this };
+        ConfigureAuxiliaryWindow(_captureChannels);
         _captureChannels.GameSelected += SelectCaptureGameWindow;
         _captureChannels.Closed += (_, _) => _captureChannels = null;
         _captureChannels.Show();
@@ -53,14 +54,16 @@ public partial class MainWindow
         GroupColumn.Visibility = OrderColumn.Visibility = EnsembleRoleColumn.Visibility = InstrumentColumn.Visibility = visibility;
         EnsembleRoleText.Visibility = EnsembleRosterHint.Visibility = visibility;
         JoinFeedbackColumn.Visibility = visibility;
-        RosterTitle.Text = ensemble ? "4  合奏分组与加入顺序" : "4  本轮成员";
-        EnsembleRosterHint.Text = IsRoomHost ? "直接输入组号与顺序，选择乐器和身份；也可拖动昵称调整位置。右键可设置总指挥或移出成员。" : "找到自己的组别、顺序与乐器；发起者开始后，依序在游戏中加入。";
+        RoomRoleColumn.Visibility=ensemble?Visibility.Collapsed:Visibility.Visible;
+        LayoutRosterColumns();
+        RosterTitle.Text = ensemble ? "4  合奏成员" : "4  本轮成员";
+        EnsembleRosterHint.Text = IsRoomHost ? "房主可编辑分组、顺序、身份与乐器。" : "找到自己的组别、顺序与乐器；乐谱使用者开始后，依序在游戏中加入。";
         MembersGrid.Columns.First(c => c is DataGridCheckBoxColumn).IsReadOnly = !IsRoomHost || RoundActive;
-        if (ViewRoom is not { } room) { EnsembleRoleText.Text = "入房后由房主分组并指定发起者。"; return; }
+        if (ViewRoom is not { } room) { EnsembleRoleText.Text = "入房后由房主分组并指定乐谱使用者。"; return; }
         var self = _members.FirstOrDefault(m => m.Id == ViewSession?.MemberId);
         EnsembleRoleText.Text = self is null ? "等待房间成员信息。" : IsManualEnsembleJoiner
-            ? $"{self.GroupText} · 第 {self.Order} 位加入。设置停止按钮后就绪，发起者开始后在游戏中加入。"
-            : $"{self.GroupText} · 发起者。在背包中选好乐谱，分别记录开始按钮与画面上的停止按钮。";
+            ? $"{self.GroupText} · 第 {self.Order} 位加入。设置停止方式后就绪，乐谱使用者开始后在游戏中加入。"
+            : $"{self.GroupText} · 乐谱使用者。在背包中选好乐谱，设置乐谱使用按钮与停止快捷键。";
         var rows = ensemble ? _members.OrderBy(m => m.Group).ThenBy(m => m.Order).ToArray()
             : room.GetProperty("members").EnumerateArray().Select(m => _members.FirstOrDefault(row => row.Id == m.GetProperty("id").GetString())).OfType<MemberRow>().ToArray();
         for (var i = 0; i < rows.Length; i++)
@@ -117,7 +120,7 @@ public partial class MainWindow
         }
         Add(menu, member.Selected ? "不参与本轮" : "参与本轮", () => { member.Selected = !member.Selected; return Task.CompletedTask; }, !RoundActive);
         Add(menu, "设为总指挥（乐谱与一轮停止参考）", () => _client.SendAsync(new { type = "select-leader", memberId = member.Id }), !RoundActive);
-        Add(menu, member.EnsembleRole == "initiator" ? "改为手动加入的参与者" : "设为本组发起者（替换原发起者）", () => _client.SendAsync(new { type = "set-ensemble-role", memberId = member.Id, musicRole = member.EnsembleRole == "initiator" ? "joiner" : "initiator" }), !RoundActive);
+        Add(menu, member.EnsembleRole == "initiator" ? "改为手动加入的参与者" : "设为本组乐谱使用者（替换原乐谱使用者）", () => _client.SendAsync(new { type = "set-ensemble-role", memberId = member.Id, musicRole = member.EnsembleRole == "initiator" ? "joiner" : "initiator" }), !RoundActive);
         var identities = new MenuItem { Header = "关联已观测角色（未安装 Npcap 的成员）" };
         if (ViewRoom is { } observedRoom && observedRoom.TryGetProperty("observedCharacters", out var characters))
             foreach (var character in characters.EnumerateArray())

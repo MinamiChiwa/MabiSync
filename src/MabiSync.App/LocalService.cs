@@ -82,8 +82,15 @@ internal sealed class LocalService : IDisposable
     public void Dispose()
     {
         _disposed = true;
-        if (_owned is null) return;
-        try { if (!_owned.HasExited) _owned.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-        _owned.Dispose(); _owned = null;
+        StopOwned();
+    }
+    public bool StopOwned()
+    {
+        var owned=_owned;if(owned is null)return false;
+        var stopped=false;
+        try {if(!owned.HasExited){owned.Kill(entireProcessTree:true);stopped=true;}}
+        catch(InvalidOperationException){}
+        finally{owned.Dispose();_owned=null;Status="本机服务已关闭。";}
+        return stopped;
     }
 }

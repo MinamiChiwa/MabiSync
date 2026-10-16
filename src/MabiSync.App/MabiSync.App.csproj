@@ -5,10 +5,12 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>MabiSync</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.1</Version>
+    <ApplicationIcon>Assets/MabiSync.ico</ApplicationIcon>
+    <Version>0.1.2</Version>
     <SatelliteResourceLanguages>zh-Hans;zh-Hant</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets/MabiSync.ico" />
     <Content Include="../../Config/乐器列表.txt" Link="Config/乐器列表.txt" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../MabiSync.Client/MabiSync.Client.csproj" />
     <ProjectReference Include="../MabiSync.Windows/MabiSync.Windows.csproj" />

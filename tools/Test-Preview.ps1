@@ -17,6 +17,7 @@ if($mabiManifest.npcapBundled -ne $false -or @(Get-ChildItem -LiteralPath $mabiP
 foreach($mabiLicenseFile in @('Microsoft.NETCore.App-LICENSE.TXT','Microsoft.NETCore.App-THIRD-PARTY-NOTICES.TXT','Microsoft.WindowsDesktop.App-LICENSE')){
     if(!(Test-Path -LiteralPath (Join-Path $mabiPackage ('Docs/THIRD-PARTY/'+$mabiLicenseFile)))){throw ('Missing runtime notice: '+$mabiLicenseFile)}
 }
+if(@(Get-ChildItem -LiteralPath $mabiPackage -File -Recurse | Where-Object {$_.Name -match 'easytier'}).Count){throw 'Removed EasyTier components are still bundled'}
 if ($mabiManifest.layoutVersion -ne 2) { throw 'Unexpected portable layout version' }
 if ($mabiManifest.product -ne 'MabiSync' -or $mabiManifest.architecture -ne 'win-x64') { throw 'Unexpected product or architecture' }
 if (!$mabiManifest.tunnelIncluded) { throw 'Public-room preview is missing its cloudflared runtime' }

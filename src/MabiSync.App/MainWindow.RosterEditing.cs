@@ -11,7 +11,7 @@ namespace MabiSync.App;
 public partial class MainWindow
 {
     public sealed record RoleChoice(string Value,string Label);
-    public IReadOnlyList<RoleChoice> EnsembleRoles {get;}=[new("initiator","发起者"),new("joiner","参与者")];
+    public IReadOnlyList<RoleChoice> EnsembleRoles {get;}=[new("initiator","乐谱使用者"),new("joiner","参与者")];
     public ObservableCollection<string> InstrumentOptions {get;}=["未指定",..InstrumentCatalog.Defaults];
     private int _rosterEdits;
     private bool _loadingInstruments;
@@ -32,12 +32,14 @@ public partial class MainWindow
     private void InstrumentDropdownOpened(object sender,EventArgs e)=>ReloadInstruments();
     private async void RosterRoleChanged(object sender,SelectionChangedEventArgs e)
     {
-        if(_refreshing || !CanEditEnsemble || sender is not ComboBox {DataContext:MemberRow row,SelectedValue:string role} box || !(box.IsKeyboardFocusWithin||box.IsDropDownOpen) || role==row.EnsembleRole)return;
-        await EditRoster(()=>_client.UpdateRosterAsync("edit-ensemble-member",row.Id,musicRole:role),$"已更新 {row.Nickname} 的合奏身份。");
+        if(_refreshing || !CanEditEnsemble || sender is not ComboBox {DataContext:MemberRow row,SelectedValue:string role} box || role==row.EnsembleRole)return;
+        var previous=role=="initiator"?_members.FirstOrDefault(other=>other.Id!=row.Id && other.Group==row.Group && other.EnsembleRole=="initiator"):null;
+        var success=previous is null?$"已将 {row.Nickname} 设为{(role=="initiator"?"乐谱使用者":"参与者")}，列表已同步。":$"第 {row.Group} 组：{row.Nickname} 已成为乐谱使用者，{previous.Nickname} 改为参与者；请重新就绪。";
+        await EditRoster(()=>_client.UpdateRosterAsync("edit-ensemble-member",row.Id,musicRole:role),success,showError:true);
     }
     private async void RosterInstrumentChanged(object sender,SelectionChangedEventArgs e)
     {
-        if(_refreshing || _loadingInstruments || !CanEditEnsemble || sender is not ComboBox {DataContext:MemberRow row,SelectedItem:string instrument} box || !(box.IsKeyboardFocusWithin||box.IsDropDownOpen) || instrument==row.Instrument)return;
+        if(_refreshing || _loadingInstruments || !CanEditEnsemble || sender is not ComboBox {DataContext:MemberRow row,SelectedItem:string instrument} box || instrument==row.Instrument)return;
         await EditRoster(()=>_client.UpdateRosterAsync("edit-ensemble-member",row.Id,instrument:instrument),$"已为 {row.Nickname} 设置乐器：{instrument}。");
     }
     private async void RowSelectionChanged(MemberRow row)
@@ -46,11 +48,11 @@ public partial class MainWindow
         if(!IsRoomHost || !ViewConnected || RoundActive){Refresh();Feedback("参与者由房主在开始前调整。",FeedbackTone.Warning);return;}
         await EditRoster(()=>_client.UpdateRosterAsync("set-member-selection",row.Id,selected:row.Selected),$"已更新 {row.Nickname} 的本轮参与状态。");
     }
-    private async Task EditRoster(Func<Task> edit,string success)
+    private async Task EditRoster(Func<Task> edit,string success,bool showError=false)
     {
         _rosterEdits++;RefreshFlow();
         try {await edit();if(!_closing){Refresh();Feedback(success);}}
-        catch(Exception error){if(!_closing){Refresh();Feedback(Friendly(error.Message),FeedbackTone.Error);}}
+        catch(Exception error){if(!_closing){Refresh();Feedback(Friendly(error.Message),FeedbackTone.Error);if(showError)MessageBox.Show(this,Friendly(error.Message),"身份修改未完成",MessageBoxButton.OK,MessageBoxImage.Information);}}
         finally {_rosterEdits--;if(!_closing)Refresh();}
     }
     private async void RosterNumberBlurred(object sender,KeyboardFocusChangedEventArgs e)=>await CommitRosterNumber((TextBox)sender);
@@ -70,7 +72,7 @@ public partial class MainWindow
             }
             if(value==current)return;
             await EditRoster(()=>_client.UpdateRosterAsync("edit-ensemble-member",row.Id,group:group?value:null,order:group?null:value),$"已更新 {row.Nickname} 的{(group?"分组":"顺序")}，列表已同步。");
-            if(!group && row.Order!=value)Feedback($"已排为组内第 {row.Order} 位；发起者固定首位，其余成员连续排列。",FeedbackTone.Info);
+            if(!group && row.Order!=value)Feedback($"已排为组内第 {row.Order} 位；乐谱使用者固定首位，其余成员连续排列。",FeedbackTone.Info);
         } finally {box.Text=(group?row.Group:row.Order).ToString(CultureInfo.InvariantCulture);_numberSubmissions.Remove(box);}
     }
 }

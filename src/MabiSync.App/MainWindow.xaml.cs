@@ -42,6 +42,10 @@ public partial class MainWindow : Window
         _client.Changed += QueueRefresh;
         _tunnel.Changed += state => Dispatcher.BeginInvoke(() => TunnelChanged(state));
         _client.Notice += message => Dispatcher.BeginInvoke(() => MessageText.Text = Friendly(message));
+        _client.RoomRestored += identity=>Dispatcher.BeginInvoke(()=>{
+            if(!_closing && _client.Connected && _client.Session is{} current && current.MemberId==identity.MemberId && current.ServerEpoch==identity.ServerEpoch)
+                Feedback("房间已重新连接，成员列表已更新。");
+        });
         _client.ReceiptReported += receipt =>
         {
             if (!receipt.Simulated && Volatile.Read(ref _gameProfile)?.Emote.Start is ChatDraftBinding &&
@@ -56,13 +60,15 @@ public partial class MainWindow : Window
             });
         };
         MembersGrid.ItemsSource = _members; LeaderBox.ItemsSource = _members;
-        LoadSettings();
+        LoadLanAddresses();LoadSettings();
         _scheduler.TimingOffsetMs = TimingOffsetMs; RefreshTimingLabel();
         _uiReady = true;
+        InitializeWindowActions();
+        RefreshProvider();
         InitializeInputs();
         InitializeObservation();
         _displayTimer.Tick += (_, _) => RefreshStatus(); _displayTimer.Start();
-        Loaded += (_, _) => { MinWidth=Math.Min(MinWidth,SystemParameters.WorkArea.Width-30);MinHeight=Math.Min(MinHeight,SystemParameters.WorkArea.Height-30);Width = Math.Min(Width, SystemParameters.WorkArea.Width - 30); Height = Math.Min(Height, SystemParameters.WorkArea.Height - 30); Refresh(); };
+        Loaded += (_, _) => { MinWidth=Math.Min(MinWidth,SystemParameters.WorkArea.Width-30);MinHeight=Math.Min(MinHeight,SystemParameters.WorkArea.Height-30);Width = Math.Min(Width, SystemParameters.WorkArea.Width - 30); Height = Math.Min(Height, SystemParameters.WorkArea.Height - 30); RefreshStartupWindows(); Refresh(); };
         SizeChanged+=(_,_)=>StatusCard.MaxHeight=Math.Max(200,ActualHeight*.48);
         Closing += OnClosing;
     }
@@ -93,7 +99,7 @@ public partial class MainWindow : Window
                     var id = member.GetProperty("id").GetString()!; present.Add(id);
                     var row = _members.FirstOrDefault(m => m.Id == id);
                     if (row is null) { row = new(id,RowSelectionChanged); _members.Add(row); }
-                    row.Update(member,CanEditEnsemble,id==session.MemberId);
+                    row.Update(member,CanEditEnsemble,id==session.MemberId,SelectedMode=="ensemble");
                 }
                 foreach (var row in _members.Where(m => !present.Contains(m.Id)).ToArray()) _members.Remove(row);
                 LeaderBox.SelectedValue = value.GetProperty("leaderId").GetString();
@@ -102,7 +108,7 @@ public partial class MainWindow : Window
                 var self = value.GetProperty("members").EnumerateArray().FirstOrDefault(m => m.GetProperty("id").GetString() == session.MemberId);
                 if (self.ValueKind == JsonValueKind.Object && self.TryGetProperty("gameIdentity", out var observedIdentity) && observedIdentity.ValueKind == JsonValueKind.Object)
                 { var name = self.GetProperty("nickname").GetString(); if (!string.IsNullOrWhiteSpace(name) && NicknameBox.Text != name) NicknameBox.Text = name; }
-                ReadyButton.Content = self.ValueKind == JsonValueKind.Object && self.GetProperty("ready").GetBoolean() ? "取消就绪" : "本机就绪";
+                ReadyButton.Content = self.ValueKind == JsonValueKind.Object && self.GetProperty("ready").GetBoolean() ? "已就绪 · 取消" : "就绪";
                 ContinueButton.IsEnabled = host && value.GetProperty("performance").ValueKind == JsonValueKind.Object && value.GetProperty("performance").GetProperty("phase").GetString() == "interrupted";
             }
             else { _members.Clear(); StartButton.IsEnabled = StopButton.IsEnabled = CancelButton.IsEnabled = ContinueButton.IsEnabled = LeaderBox.IsEnabled = false; }
@@ -139,7 +145,7 @@ public partial class MainWindow : Window
         StopButton.Content = "全员停止";
         LocalStopButton.Content = emote ? "取消本机任务" : "本机停止";
         FlowHint.Text = emote ? "各成员准备好动作后，由房主统一开始。"
-            : "各组发起者使用自己的乐谱同步开始，组员依序在游戏中加入。";
+            : "各组乐谱使用者使用自己的乐谱同步开始，组员依序在游戏中加入。";
         ReadyButton.Visibility = IsRoomHost ? Visibility.Collapsed : Visibility.Visible;
         StartButton.IsEnabled &= !active;
         LeaderBox.IsEnabled &= !active;
@@ -147,10 +153,11 @@ public partial class MainWindow : Window
         var beforeStart = active && (_roomClock.ServerNowMs is not { } now || now < (performance!.Value.TryGetProperty("latestStartServerMs", out var latest) ? latest.GetDouble() : performance.Value.GetProperty("startAction").GetProperty("targetServerMs").GetDouble()));
         var host = ViewSession is { } identity && ViewRoom?.GetProperty("hostId").GetString() == identity.MemberId;
         CountdownBox.IsEnabled = !active && host && ViewConnected;
-        CountdownHint.Text = host && !active ? _countdownError ?? "倒计时支持 1–60 秒；开始时自动激活所选游戏窗口。" :
+        CountdownHint.Text = host && !active ? _countdownError ?? "" :
             active && performance!.Value.TryGetProperty("countdownMs", out var ms) ?
                 $"本轮倒计时 {ms.GetInt32() / 1000.0:0.###} 秒。" +
                 (performance.Value.TryGetProperty("requestedCountdownMs",out var requested) && requested.GetInt32()<ms.GetInt32()?" 已为提前量及网络准备自动补足时间。":"") : "";
+        CountdownBox.ToolTip = _countdownError ?? "1–60 秒，支持小数；开始时自动激活游戏窗口。";
         StartButton.IsEnabled &= _countdownError is null;
         StartButton.IsEnabled &= _rosterEdits==0;
         StartButton.IsEnabled &= emote || SelectedStopRule != MusicStopRule.Duration || _musicDurationError is null;
@@ -171,7 +178,11 @@ public partial class MainWindow : Window
         RefreshCountdown(p);RefreshFeedback();
         PhaseText.Foreground=ColorBrush("#9DC7FF");
         if(ViewSession is not null && !ViewConnected){PhaseText.Text="房间连接已中断";PhaseText.Foreground=ColorBrush("#FFAFB9");return;}
-        if (p is not { ValueKind: JsonValueKind.Object }) { PhaseText.Text = ViewSession is null ? "连接房间" : "准备本轮动作"; return; }
+        if (p is not { ValueKind: JsonValueKind.Object } || p.Value.GetProperty("phase").GetString() is "cancelled" or "stopped") {
+            PhaseText.Text = ViewSession is null ? "连接房间" : IdleReadinessText();
+            if(ViewSession is not null)PhaseText.Foreground=ColorBrush(PhaseText.Text is "已就绪" or "全员已就绪"?"#86E1B2":IsRoomHost?"#9DC7FF":"#FFAFB9");
+            return;
+        }
         var value = p.Value; var phase = value.GetProperty("phase").GetString();
         var emote = value.GetProperty("mode").GetString() == "emote";
         var prefix = _inputRouter.UseSimulation ? "模拟" : "";
@@ -196,6 +207,12 @@ public partial class MainWindow : Window
         if(phase=="interrupted" || localReceipt?.Status is "failed" or "missed")PhaseText.Foreground=ColorBrush("#FFAFB9");
         else if(phase=="stopped")PhaseText.Foreground=ColorBrush("#86E1B2");
     }
+    private string IdleReadinessText()
+    {
+        var self=_members.FirstOrDefault(member=>member.Id==ViewSession?.MemberId);
+        return IsRoomHost ? _members.Any(member=>member.Selected && member.Id!=self?.Id && (!member.Ready || member.Status=="已离线"))?"等待全员就绪":"全员已就绪"
+            : self?.Ready==true?"已就绪":"未就绪";
+    }
     private async Task Run(Button? button, Func<Task> operation)
     {
         if (_closing) return;
@@ -204,28 +221,34 @@ public partial class MainWindow : Window
         catch (Exception error) { Feedback(Friendly(error.Message),FeedbackTone.Error); }
         finally { if (button is not null) button.IsEnabled = true; if (!_closing) Refresh(); }
     }
-    private async void ConnectClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.ConnectAsync(EndpointBox.Text.Trim()); MessageText.Text = "已连接，请创建或加入房间。"; SaveSettings(); });
+    private async void ConnectClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {if(_client.Session is not null){await ReconnectRoom();return;}await _client.ConnectAsync(EndpointBox.Text.Trim());Feedback("已连接，请创建或加入房间。");SaveSettings();});
     private async void StartServerClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { RequireNoRoom(); await _server.StartAsync(LanCheck.IsChecked == true); EndpointBox.Text = "ws://127.0.0.1:3132"; await _client.ConnectAsync(EndpointBox.Text); MessageText.Text = _server.Status; });
-    private async void CreateClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.CreateRoomAsync(RoomNickname()); SaveSettings(); });
+    private async void CreateClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await CreateConfiguredRoom(RoomNickname()); SaveSettings(); });
     private async void JoinClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.JoinRoomAsync(RoomNickname(), CodeBox.Text.Trim().ToUpperInvariant()); SaveSettings(); });
-    private async void LeaveClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {
-        var host=IsRoomHost;InvalidateReadiness();if(host && !ViewConnected)await _client.ConnectAsync(_client.Endpoint);
-        if(_client.Connected && _client.Session is not null)await _client.LeaveRoomAsync(host);else _client.ForgetDisconnectedRoom();
-        await _tunnel.StopAsync();
-        if(host && _client.UnconfirmedRoomExits>0)Feedback($"房间已关闭，旧邀请已失效。{_client.UnconfirmedRoomExits} 位成员暂未确认退出，其重新连接时将离开旧房间。",FeedbackTone.Warning);
-        else Feedback(host?"房间已关闭，所有在线成员已确认退出，旧邀请已失效。":"已退出房间。");
-    });
+    private async void LeaveClick(object sender, RoutedEventArgs e)
+    {
+        if(_leavingRoom || _closing)return;
+        _leavingRoom=true;_scheduler.RoomExited();
+        try {
+            if(_connectionBusy) {
+                if(_networkOperation is null)return;
+                var pending=_connectionFinished;_networkOperation.Cancel();RefreshConnection();
+                if(pending is not null)await pending;
+            }
+            await RunConnection((Button)sender,CloseOrLeaveRoom);
+        }catch(Exception error){Feedback(Friendly(error.Message),FeedbackTone.Error);}
+        finally{_leavingRoom=false;if(!_closing)Refresh();}
+    }
     private async void OpenPublicClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () =>
     {
+        if(_usingCommunity || SelectedProvider=="community")throw new InvalidOperationException("服务器直连已包含公网连接，请创建或加入房间。");
         if (ViewSession is { } identity && (ViewRoom?.GetProperty("hostId").GetString() != identity.MemberId || new Uri(_client.Endpoint).Host is not ("127.0.0.1" or "localhost")))
             throw new InvalidOperationException("请由本机房间的房主建立公网连接。加入他人房间时直接使用对方的服务地址。");
-        var executable = Path.Combine(AppContext.BaseDirectory, "runtime", "cloudflared.exe");
-        if (!File.Exists(executable)) throw new IOException("当前构建缺少公网组件，请使用完整发布包；也可手动填写已有服务地址。");
         await _server.StartAsync(LanCheck.IsChecked == true);
         if (!ViewConnected || ViewSession is null) { EndpointBox.Text = "ws://127.0.0.1:3132"; await _client.ConnectAsync(EndpointBox.Text); }
-        await _tunnel.StartAsync(executable);
+        await EstablishPublic();
     });
-    private async void ClosePublicClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {await _tunnel.StopAsync();Feedback("公网连接已关闭，房间仍保留。",FeedbackTone.Warning);});
+    private async void ClosePublicClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {if(_usingCommunity || _usingLan){await CloseOrLeaveRoom();return;}if(ViewSession is not null && !IsRoomHost)throw new InvalidOperationException("离开房间后将自动关闭本机连接。");await StopNetworks();Feedback("公网连接已关闭，房间仍保留。",FeedbackTone.Warning);});
     private async void CopyPublicClick(object sender,RoutedEventArgs e)=>await Run((Button)sender,CopyInvitationAsync);
     private async void ReadyClick(object sender, RoutedEventArgs e) => await Run((Button)sender, async () =>
     {
@@ -271,7 +294,7 @@ public partial class MainWindow : Window
         else
         {
             await _client.SendAsync(new { type = "prepare", mode, countdownMs, participantIds = participants });
-            if (mode != "emote") MessageText.Text = "本轮同步发起者开始；参与者手动加入，结束由房主统一停止。";
+            if (mode != "emote") MessageText.Text = "本轮同步乐谱使用者开始；参与者手动加入，结束由房主统一停止。";
         }
         SaveSettings();
     });
@@ -294,6 +317,8 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(File.ReadAllText(_settings)); var root = doc.RootElement;
             EndpointBox.Text = root.GetProperty("endpoint").GetString() ?? EndpointBox.Text;
             NicknameBox.Text = root.GetProperty("nickname").GetString() ?? NicknameBox.Text;
+            if(root.TryGetProperty("publicProvider",out var provider))PublicProviderBox.SelectedIndex=provider.GetString() switch {"lan"=>1,"cloudflare"=>0,_=>2};
+            if(root.TryGetProperty("lanEndpoint",out var lan) && lan.ValueKind==JsonValueKind.String) LanAddressBox.Text=lan.GetString()??LanAddressBox.Text;
             if (root.TryGetProperty("timingOffsetMs", out var adjustment) && adjustment.TryGetInt32(out var offset) && offset is >= -2000 and <= 2000) TimingOffsetSlider.Value = offset;
             if (root.TryGetProperty("countdownMs", out var countdown) && countdown.TryGetInt32(out var milliseconds) && milliseconds is >= 1000 and <= 60000)
             { _countdownMs = milliseconds; CountdownBox.Text = (milliseconds / 1000m).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture); }
@@ -303,6 +328,9 @@ public partial class MainWindow : Window
             int? legacyChoice = root.TryGetProperty("musicStopChoice", out var stopChoice) && stopChoice.TryGetInt32(out var choice) ? choice : null;
             StopChoice.SelectedIndex = MusicStopSettings.Restore(stopRule, legacyChoice) switch { MusicStopRule.Duration => 1, MusicStopRule.FirstCycle => 2, _ => 0 };
             if (root.TryGetProperty("bindings", out var bindings)) LoadInputSettings(bindings);
+            if(root.TryGetProperty("startInputKinds",out var kinds) && kinds.ValueKind==JsonValueKind.Object)
+                foreach(var mode in new[]{"emote","independent","ensemble"})
+                    if(kinds.TryGetProperty(mode,out var kind) && kind.TryGetInt32(out var index) && index>=0 && index<=(mode=="emote"?2:1))_startInputKinds[mode]=index;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or KeyNotFoundException or InvalidOperationException)
         {
@@ -316,7 +344,7 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_settings)!);
             var temp = _settings + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings }));
+            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
             File.Move(temp, _settings, true);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { MessageText.Text = "设置未能保存：" + error.Message; }
@@ -327,6 +355,7 @@ public partial class MainWindow : Window
         e.Cancel = true; if (_closing) return;
         _closing = true; IsEnabled = false; _displayTimer.Stop(); _observationTimer.Stop(); _calibrationCancellation.Cancel(); _hotkey?.Dispose(); SaveSettings();
         _scheduler.CancelAll();
+        _networkOperation?.Cancel();
         try
         {
             if(_client.Connected && _client.Session is not null)await Cleanup("close-room",()=>_client.LeaveRoomAsync(IsRoomHost));
@@ -348,7 +377,7 @@ public partial class MainWindow : Window
     {
         "BAD_NICKNAME" => "请填写 1–20 字的昵称，或通过抓包识别更新昵称。",
         "MEMBER_NOT_READY" => "选中的成员尚未全部就绪，请让成员就绪或取消勾选。",
-        "NO_ENSEMBLE_INITIATOR" => "本轮没有发起者，请由房主右键设置至少一位参与的合奏发起者。",
+        "NO_ENSEMBLE_INITIATOR" => "本轮没有乐谱使用者，请由房主右键设置至少一位参与的合奏乐谱使用者。",
         "CANNOT_KICK_HOST" => "房主不能将自己移出房间；请使用离开房间。",
         "BAD_ENSEMBLE_GROUP" => "合奏组编号应为 1–24。",
         "BAD_ENSEMBLE_ORDER" => "顺序应为 1–24，组内按连续顺序排列。",

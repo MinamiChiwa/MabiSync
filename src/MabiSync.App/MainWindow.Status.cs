@@ -30,9 +30,9 @@ public partial class MainWindow
     private static Brush ColorBrush(string value){var brush=new SolidColorBrush((Color)ColorConverter.ConvertFromString(value));brush.Freeze();return brush;}
     private void TunnelChanged(TunnelState state)
     {
-        if(_closing || !ReferenceEquals(state,_tunnel.State))return;
+        if(_closing || _usingLan || _usingCommunity || !ReferenceEquals(state,_tunnel.State))return;
         PublicStateText.Text=state.Message;PublicAddressBox.Text=state.Endpoint?.AbsoluteUri??"";
-        NetworkBanner.Visibility=state.Status=="off"?Visibility.Collapsed:Visibility.Visible;
+        NetworkBanner.Visibility=state.Status is "off" or "ready"?Visibility.Collapsed:Visibility.Visible;
         NetworkBanner.Background=ColorBrush(state.Status switch{"ready"=>"#173D32","error"=>"#482730",_=>"#203552"});
         NetworkBannerText.Foreground=ColorBrush(state.Status switch{"ready"=>"#86E1B2","error"=>"#FFAFB9",_=>"#9DC7FF"});
         NetworkBannerText.Text=state.Status=="ready"?"公网房间已就绪 · 点击“复制邀请”分享给好友。":state.Message;

@@ -25,12 +25,12 @@ public partial class MainWindow
     private void RefreshMusicStatus(JsonElement? performance)
     {
         LeaderPurposeText.Text=SelectedStopRule switch {
-            MusicStopRule.FirstCycle=>"以此人的乐谱确定全员一轮停止时间；总指挥中断时提示房主。各组由各自的发起者开始。",
+            MusicStopRule.FirstCycle=>"以此人的乐谱确定全员一轮停止时间；总指挥中断时提示房主。各组由各自的乐谱使用者开始。",
             MusicStopRule.Duration=>"显示此人的乐谱，作为中断报告对象；全员按指定时长停止。",
             _=>"显示此人的乐谱，作为中断报告对象；全员停止由房主决定。"
         };
         var music = SelectedMode != "emote";
-        MusicStatusText.Visibility = music ? Visibility.Visible : Visibility.Collapsed;
+        MusicStatusText.Visibility = music && performance is {ValueKind:JsonValueKind.Object} ? Visibility.Visible : Visibility.Collapsed;
         RefreshScoreObservation(music, performance);
         ReportLeaderButton.Visibility = ContinueButton.Visibility = Visibility.Collapsed;
         if (!music) return;
@@ -82,6 +82,7 @@ public partial class MainWindow
     private void RefreshScoreObservation(bool visible, JsonElement? performance)
     {
         ScoreCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ScoreObservationText.ToolTip="总指挥启用抓包识别后开始演奏，可读取乐谱与时长。";
         if (!visible) return;
         var room = ViewConnected ? ViewRoom : null;
         if (room is { ValueKind: JsonValueKind.Object } r)
@@ -97,17 +98,18 @@ public partial class MainWindow
                     var whole = score.GetProperty("wholeScoreDurationSeconds"); var selected = score.GetProperty("selectedDurationSeconds");
                     ScoreObservationText.Text = $"总指挥乐谱：{(string.IsNullOrWhiteSpace(title) ? "未命名乐谱" : title)} · " +
                         (whole.ValueKind == JsonValueKind.Number ? $"全谱 {whole.GetDouble():0.###} 秒" : "时长待解析") +
-                        (selected.ValueKind == JsonValueKind.Number ? $" · 实际声部 {selected.GetDouble():0.###} 秒" : "") +
-                        "\n" + (score.GetProperty("issue").GetString() ?? "游戏起点与循环终点待核对。");
+                        (selected.ValueKind == JsonValueKind.Number ? $" · 实际声部 {selected.GetDouble():0.###} 秒" : "");
+                    ScoreObservationText.ToolTip=score.GetProperty("issue").GetString() ?? "游戏起点与循环终点待核对。";
                     return;
                 }
-                ScoreObservationText.Text = "等待总指挥乐谱信息；总指挥启用抓包识别后开始演奏即可读取。";
+                ScoreObservationText.Text = "乐谱：等待识别";
                 return;
             }
         }
         var local = _gameObservation.Current.Game.Music;
-        ScoreObservationText.Text = local is null ? "启用抓包识别后，可查看正在演奏的乐谱信息。" :
-            $"本机乐谱：{local.Title} · " + (local.WholeScoreDurationSeconds is { } seconds ? $"全谱 {seconds:0.###} 秒" : "时长待解析") + "\n" + local.Issue;
+        ScoreObservationText.Text = local is null ? "乐谱：等待识别" :
+            $"本机乐谱：{local.Title} · " + (local.WholeScoreDurationSeconds is { } seconds ? $"全谱 {seconds:0.###} 秒" : "时长待解析");
+        if(local is not null)ScoreObservationText.ToolTip=local.Issue;
     }
     private string InterruptionText(JsonElement detail)
     {

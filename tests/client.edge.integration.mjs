@@ -5,6 +5,31 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 
+for(const scenario of ['resume-delayed','resume-expired','resume-disconnected'])test(`native ${scenario} cannot complete before room restoration`,async t=>{
+  const wss=new WebSocketServer({port:0,host:'127.0.0.1'});await new Promise(r=>wss.once('listening',r));
+  t.after(async()=>{for(const ws of wss.clients)ws.terminate();await new Promise(r=>wss.close(r));});
+  const epoch=randomUUID();const identity={type:'session',code:'FIXTUR',memberId:'fixture-host',token:'a'.repeat(48),serverEpoch:epoch};
+  wss.on('connection',ws=>{
+    const send=value=>{if(ws.readyState===1)ws.send(JSON.stringify(value));};
+    const state=resumed=>send({type:'state',serverEpoch:epoch,room:{code:'FIXTUR',hostId:identity.memberId,members:[{id:identity.memberId,connected:true}],resumed}});
+    send({type:'hello',product:'MabiSync',protocolVersion:1,serverEpoch:epoch});
+    ws.on('message',bytes=>{const msg=JSON.parse(bytes);
+      if(msg.type==='hello')send({type:'hello-accepted',serverEpoch:epoch});
+      if(msg.type==='sync')send({type:'sync',id:msg.id,t1:msg.t1,t2:performance.now(),t3:performance.now(),serverEpoch:epoch});
+      if(msg.type==='create'){send(identity);state(false);}
+      if(msg.type==='resume')setTimeout(()=>{
+        if(scenario==='resume-expired')send({type:'error',code:'SESSION_EXPIRED'});
+        else if(scenario==='resume-disconnected')ws.close();
+        else{send(identity);state(true);}
+      },300).unref();
+    });
+  });
+  const path=fileURLToPath(new URL('./MabiSync.Client.Probe/bin/Release/net8.0/MabiSync.Client.Probe.dll',import.meta.url));
+  const child=spawn('dotnet',[path,`ws://127.0.0.1:${wss.address().port}`,scenario],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+  t.after(()=>{if(child.exitCode===null)child.kill();});let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
+  const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});assert.equal(code,0,output);
+});
+
 test('a silent service cannot leave the native client reporting a healthy room',async t=>{
   const wss=new WebSocketServer({port:0,host:'127.0.0.1'});await new Promise(r=>wss.once('listening',r));
   t.after(async()=>{for(const ws of wss.clients)ws.terminate();await new Promise(r=>wss.close(r));});

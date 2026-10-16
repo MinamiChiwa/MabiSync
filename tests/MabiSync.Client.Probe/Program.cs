@@ -3,6 +3,7 @@ using MabiSync.Core;
 using MabiSync.Client;
 
 if (args.Length is < 1 or > 2) return 2;
+if(args.Length==2 && args[1].StartsWith("resume-"))return await ResumeRoomFlow.Run(args[0],args[1]);
 if (args.Length == 2 && args[1] == "music-flow") return await MusicRoomFlow.Run(args[0]);
 if (args.Length == 2 && args[1] == "room-setup") return await RoomSetupFlow.Run(args[0]);
 if (args.Length == 2 && args[1] == "emote-flow") return await EmoteRoomFlow.Run(args[0]);

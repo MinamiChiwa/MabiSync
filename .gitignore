@@ -17,3 +17,8 @@ docs/internal/
 settings.json
 .env
 .env.*
+conversations/
+transcripts/
+*.pcapng.gz
+*.mp4
+*.mkv

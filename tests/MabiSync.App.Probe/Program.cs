@@ -32,7 +32,7 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         Dispatcher.CurrentDispatcher.BeginInvoke(async () =>
         {
-            try { await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
+            try { await HeaderActions();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
             catch (Exception error) { _failed++; Console.WriteLine("FAIL " + Unwrap(error)); }
             finally { app.Shutdown(); Dispatcher.ExitAllFrames(); }
         });
@@ -45,6 +45,9 @@ internal static class Program
         var window=(Window)Activator.CreateInstance(_windowType, Private, null, [Path.Combine(_folder, Guid.NewGuid()+".json"), false], null)!;
         var nickname=(TextBox)window.FindName("NicknameBox");
         Check(nickname.Text=="","Fresh profile contains a prefilled nickname");
+        Check(((ComboBox)window.FindName("ModeBox")).SelectedIndex==1,"Fresh profile does not default to ensemble");
+        Check(((ComboBox)window.FindName("StartInputKind")).SelectedIndex==1,"Fresh start binding does not default to game button");
+        Check(((ComboBox)window.FindName("StopInputKind")).SelectedIndex==0 && ((TextBox)window.FindName("StopKeyBox")).Text=="Space","Fresh stop binding is not Space");
         nickname.Text="Fixture";
         var input=(CheckBox)window.FindName("EnableGameInput");
         Check(input.IsChecked==true && !Field<InputRouter>(window,"_inputRouter").UseSimulation,"Game input is not the default active option");
@@ -52,6 +55,101 @@ internal static class Program
         input.IsChecked=false;return window;
     }
     private static T Field<T>(object target, string name) => (T)target.GetType().GetField(name, Private)!.GetValue(target)!;
+    private static async Task HeaderActions()
+    {
+        var window=NewWindow();
+        try {
+            Check(window.Topmost,"Window does not default to topmost");
+            var pin=window.FindName("PinWindowButton") as Button;var privacy=window.FindName("CapturePrivacyButton") as Button;
+            Check(pin is not null && privacy is not null && window.FindName("SponsorButton") is Button,"Header icon actions missing");
+            Check(pin!.ToolTip!.ToString()!.Contains("已开启") && privacy!.ToolTip!.ToString()!.Contains("已开启"),"Header toggle defaults are unclear");
+            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!window.Topmost,"Pin button did not disable topmost");
+            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(window.Topmost,"Pin button did not enable topmost");
+            new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+            var policy=Field<object>(window,"_windowCapturePolicy");
+            var policyType=policy.GetType();
+            var affinity=policyType.GetMethod("ReadAffinity")!;
+            if(OperatingSystem.IsWindowsVersionAtLeast(10,0,19041))Check((uint)affinity.Invoke(policy,[window])! == 0x11,"Capture privacy was not applied to the native window");
+            privacy!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check((uint)affinity.Invoke(policy,[window])! == 0,"Capture privacy did not turn off");
+            Check(privacy.ToolTip!.ToString()!.Contains("已关闭"),"Disabled privacy hint is stale");
+            privacy!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("SponsorButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var sponsor=Field<Window>(window,"_sponsorWindow");
+            Check(sponsor.Owner==window && sponsor.Title.Contains("支持"),"Sponsor entry did not open owned secondary window");
+            Check(Children<Button>((DependencyObject)sponsor.Content).Any(button=>button.Content?.ToString()=="爱发电") && Children<Button>((DependencyObject)sponsor.Content).Any(button=>button.Content?.ToString()=="Patreon"),"Sponsor providers missing");
+            ((Button)window.FindName("SponsorButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(ReferenceEquals(sponsor,Field<Window>(window,"_sponsorWindow")),"Sponsor clicks create duplicate windows");
+            Check(window.Icon is not null && sponsor.Icon is not null,"Application windows lack product icon");
+            if(OperatingSystem.IsWindowsVersionAtLeast(10,0,19041))Check((uint)affinity.Invoke(policy,[sponsor])! == 0x11,"Sponsor dialog is not excluded from capture");
+            privacy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check((uint)affinity.Invoke(policy,[sponsor])! == 0,"Privacy disable did not reach existing secondary windows");
+            privacy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!sponsor.Topmost,"Unpin did not reach secondary window");
+            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(sponsor.Topmost,"Pin did not reach secondary window");
+            var images=Environment.GetEnvironmentVariable("MABISYNC_UI_OUTPUT");if(images is not null){Directory.CreateDirectory(images);Render(sponsor,400,320,Path.Combine(images,"sponsor-dialog.png"));Render(window,1180,900,Path.Combine(images,"header-actions.png"));}
+            sponsor.Close();
+            Console.WriteLine("PASS WPF header toggles, native capture exclusion and sponsor dialog; external links opened: 0");
+        }finally{await Close(window);}
+    }
+    private static bool InsideStatusDetails(DependencyObject item)
+    {
+        for(var parent=LogicalTreeHelper.GetParent(item);parent is not null;parent=LogicalTreeHelper.GetParent(parent))
+            if(parent is Expander expander && expander.Name=="StatusSection")return true;
+        return false;
+    }
+    private static async Task CompactReadiness()
+    {
+        var window=NewWindow();var client=Field<RoomClient>(window,"_client");
+        try {
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","host","fixture","epoch","ws://127.0.0.1:3132/"));
+            typeof(RoomClient).GetField("_connected",Private)!.SetValue(client,true);
+            SetSnapshot(client,["host","member"]);Call(window,"Refresh");Layout(window,780,700);
+            Check(((TextBlock)window.FindName("PhaseText")).Text=="等待全员就绪","Host idle phase incorrectly asks the host to prepare");
+            var section=(Expander)window.FindName("StatusSection");section.IsExpanded=false;Layout(window,780,700);
+            var start=(Button)window.FindName("StartButton");
+            Check(!InsideStatusDetails(start),"Start is hidden inside collapsible status content");
+            Check(start.IsEnabled && start.ActualHeight>0,"Collapsed status makes start unusable");
+            var room=client.Room!.Value;var nodes=System.Text.Json.Nodes.JsonNode.Parse(room.GetRawText())!;
+            nodes["members"]![1]!["ready"]=true;nodes["members"]![0]!["instrument"]="钢琴";
+            var snapshotType=typeof(RoomClient).GetNestedType("Snapshot",BindingFlags.NonPublic)!;
+            void Publish()=>typeof(RoomClient).GetField("_snapshot",Private)!.SetValue(client,Activator.CreateInstance(snapshotType,[JsonSerializer.SerializeToElement(nodes)]));
+            Publish();Call(window,"Refresh");
+            Check(((TextBlock)window.FindName("PhaseText")).Text=="全员已就绪","Host does not reflect all selected members ready");
+            Check(((TextBlock)window.FindName("RoleSummaryText")).Text.Contains("钢琴"),"Identity summary omits instrument");
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","member","fixture","epoch","ws://127.0.0.1:3132/"));Call(window,"Refresh");Layout(window,780,700);
+            var ready=(Button)window.FindName("ReadyButton");
+            Check(((TextBlock)window.FindName("PhaseText")).Text=="已就绪","Member ready phase missing");
+            Check(ready.Background.ToString()=="#FF173D32","Ready button is not green");
+            Check(!InsideStatusDetails(ready) && ready.IsEnabled && ready.ActualHeight>0,"Collapsed status hides member readiness");
+            nodes["members"]![1]!["ready"]=false;Publish();Call(window,"Refresh");
+            Check(((TextBlock)window.FindName("PhaseText")).Text=="未就绪" && ready.Background.ToString()=="#FF482730","Member unready phase/button is not red");
+            nodes["performance"]=System.Text.Json.Nodes.JsonNode.Parse("{\"id\":\"ended-fixture\",\"phase\":\"stopped\",\"mode\":\"emote\",\"startAction\":{\"id\":\"ended-start\",\"targetServerMs\":0}}");Publish();Call(window,"Refresh");
+            Check(((TextBlock)window.FindName("PhaseText")).Text=="未就绪","Previous round masks member readiness");
+            nodes["performance"]=null;Publish();Call(window,"Refresh");
+            var images=Environment.GetEnvironmentVariable("MABISYNC_UI_OUTPUT");
+            if(images is not null){Directory.CreateDirectory(images);Render(window,780,700,Path.Combine(images,"member-collapsed.png"));section.IsExpanded=true;Render(window,1180,900,Path.Combine(images,"member-expanded.png"));}
+            Console.WriteLine("PASS WPF compact role-specific readiness, instrument summary and persistent actions");
+        }finally{await Close(window);}
+    }
+    private static async Task DefaultsPersistence()
+    {
+        var window=NewWindow();var path=Field<string>(window,"_settings");
+        try {
+            Check(((FrameworkElement)window.FindName("StartButtonHelp")).ToolTip?.ToString()=="请选中乐谱的使用按钮位置。","Start button help is missing");
+            ((ComboBox)window.FindName("ModeBox")).SelectedIndex=0;
+            ((ComboBox)window.FindName("ModeBox")).SelectedIndex=1;
+            Check(((ComboBox)window.FindName("StartInputKind")).SelectedIndex==1,"Mode switching lost the uncalibrated button preference");
+            ((ComboBox)window.FindName("StartInputKind")).SelectedIndex=0;
+            Call(window,"SaveSettings");
+        } finally {await Close(window);}
+        var restored=(Window)Activator.CreateInstance(_windowType,Private,null,[path,false],null)!;
+        try {
+            Check(((ComboBox)restored.FindName("StartInputKind")).SelectedIndex==0,"Saved unbound shortcut preference was replaced by the new default");
+            Check(((TextBox)restored.FindName("StopKeyBox")).Text=="Space","Saved stop binding was lost");
+        }finally{await Close(restored);}
+        Console.WriteLine("PASS WPF fresh ensemble/button/Space defaults and binding preference persistence");
+    }
     private static int WindowFixture()
     {
         var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
@@ -80,6 +178,10 @@ internal static class Program
             Check(!(bool)platformType.GetMethod("IsProcessRunning")!.Invoke(null,[target with{ProcessStartedUtcTicks=target.ProcessStartedUtcTicks+1}])!,"Capture accepted a different process generation");
             ((CheckBox)window.FindName("ShowOtherWindows")).IsChecked=true;
             var box=(ComboBox)window.FindName("GameWindowBox");box.SelectedItem=box.Items.Cast<object>().Single(item=>(GameWindowState)item.GetType().GetProperty("State")!.GetValue(item)! == state);
+            box.ItemsSource=null;
+            window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+            Check(box.Items.Count>0 && (bool)Field<object>(window,"_startupWindowsRefreshed"),"Startup did not refresh available windows");
+            box.SelectedItem=box.Items.Cast<object>().Single(item=>(GameWindowState)item.GetType().GetProperty("State")!.GetValue(item)! == state);
             Call(window,"RefreshWindowsClick",box,new RoutedEventArgs());
             Check(box.SelectedItem?.GetType().GetProperty("Label")!.GetValue(box.SelectedItem)?.ToString()?.Contains("MabiSync minimized fixture")==true,"Refresh lost minimized selection or its title");
             var observer=Field<object>(window,"_gameObservation");var observationType=observer.GetType();
@@ -113,6 +215,15 @@ internal static class Program
         var window=NewWindow();
         try {
             var box=window.FindName("TimingOffsetBox") as TextBox;
+            var provider=window.FindName("PublicProviderBox") as ComboBox;
+            Check(provider is not null && provider.Items.Count==3,"Connection choices should be server, LAN and Cloudflare");
+            Check(provider!.SelectedIndex==2,"Fresh profile does not default to encrypted server");
+            Check(window.FindName("EasyTierNodesBox") is null,"Removed provider still exposes node settings");
+            provider.SelectedIndex=1;
+            Check(((FrameworkElement)window.FindName("LanControls")).Visibility==Visibility.Visible,"LAN controls hidden in LAN mode");
+            Check(window.FindName("LanTutorialButton") is Button,"LAN mode lacks a connection guide");
+            provider.SelectedIndex=0;
+            Check(((FrameworkElement)window.FindName("LanControls")).Visibility==Visibility.Collapsed,"LAN controls leaked into public mode");
             Check(box is not null,"Timing adjustment has no numeric editor");
             box!.Text="-37";
             Check(Field<ActionScheduler>(window,"_scheduler").TimingOffsetMs==-37,"Numeric advance did not reach scheduler");
@@ -197,15 +308,16 @@ internal static class Program
             Check((bool)host.GetType().GetProperty("CanEdit")!.GetValue(host)!,"Host roster editing is disabled");
             Check((bool)host.GetType().GetProperty("IsSelf")!.GetValue(host)!,"Local character lacks self emphasis");
             var groupEditor=Children<TextBox>(grid).First(box=>box.Tag as string=="group");
+            Check(!Equals(((Border)window.FindName("StatusCard")).Background,window.FindResource("FieldBrush")),"Status surface has no distinct treatment");
             groupEditor.SelectAll();groupEditor.SelectedText="12";Call(window,"Refresh");
             Check(groupEditor.Text=="12","Unchanged room refresh overwrote a typed group draft");groupEditor.GetBindingExpression(TextBox.TextProperty)!.UpdateTarget();
             var roleEditor=Children<ComboBox>(grid).First(box=>box.SelectedValuePath=="Value");
             Check(roleEditor.SelectedValue as string=="initiator" && roleEditor.IsEnabled,"Role editor is not bound to the authoritative row");
-            Check(Children<TextBlock>(roleEditor).Any(text=>text.Text=="发起者"),"Dark role selection displays an object type instead of its label");
+            Check(Children<TextBlock>(roleEditor).Any(text=>text.Text=="乐谱使用者"),"Dark role selection displays an object type instead of its label");
             Check(Children<TextBlock>((ComboBox)window.FindName("LeaderBox")).Any(text=>text.Text=="host"),"Dark conductor selection lost DisplayMemberPath");
             grid.SelectedIndex=1;
             var images=Environment.GetEnvironmentVariable("MABISYNC_UI_OUTPUT");
-            if(images is not null){Directory.CreateDirectory(images);Render(window,1180,900,Path.Combine(images,"ensemble-host.png"));((ScrollViewer)window.FindName("WorkflowScroll")).ScrollToVerticalOffset(250);Render(window,1180,900,Path.Combine(images,"ensemble-roster.png"));Render(window,780,700,Path.Combine(images,"ensemble-compact.png"));
+            if(images is not null){Directory.CreateDirectory(images);Render(window,1180,900,Path.Combine(images,"ensemble-host.png"));((ScrollViewer)window.FindName("WorkflowScroll")).ScrollToVerticalOffset(250);Render(window,1180,900,Path.Combine(images,"ensemble-roster.png"));Render(window,780,700,Path.Combine(images,"ensemble-compact.png"));((ScrollViewer)window.FindName("WorkflowScroll")).ScrollToBottom();Render(window,1180,900,Path.Combine(images,"roster-wide.png"));Render(window,780,700,Path.Combine(images,"roster-narrow.png"));
                 foreach(var expander in Children<Expander>((DependencyObject)window.Content))if(expander.Header?.ToString()?.StartsWith("本机时间微调")==true)expander.IsExpanded=true;
                 Render(window,1180,1000,Path.Combine(images,"timing-expanded.png"));
                 var capture=(Window)Activator.CreateInstance(_windowType.Assembly.GetType("MabiSync.App.CaptureChannelWindow")!,[null,Field<object>(window,"_gameObservation")])!;
@@ -229,7 +341,7 @@ internal static class Program
             if(images is not null)Render(window,1180,900,Path.Combine(images,"countdown.png"));
             var readyState=new MabiSync.Client.TunnelState("ready",new Uri("wss://fixture.trycloudflare.com"),"公网已就绪");
             typeof(QuickTunnel).GetField("_state",Private)!.SetValue(Field<QuickTunnel>(window,"_tunnel"),readyState);Call(window,"TunnelChanged",readyState);
-            Check(((FrameworkElement)window.FindName("NetworkBanner")).Visibility==Visibility.Visible && ((Button)window.FindName("CopyPublicButton")).IsEnabled,"Public ready state lacks visible feedback");
+            Check(((FrameworkElement)window.FindName("FeedbackBanner")).Visibility==Visibility.Visible && ((TextBlock)window.FindName("MessageText")).Text.Contains("公网连接已建立") && ((FrameworkElement)window.FindName("NetworkBanner")).Visibility==Visibility.Collapsed && ((Button)window.FindName("CopyPublicButton")).IsEnabled,"Public success is missing or duplicated");
             var tries=0;string? invitation=null;
             _windowType.GetField("_clipboardWriterOverride",Private)!.SetValue(window,(Action<string>)(text=>{if(++tries<3)throw new System.Runtime.InteropServices.COMException("busy",unchecked((int)0x800401D0));invitation=text;}));
             await (Task)_windowType.GetMethod("CopyInvitationAsync",Private)!.Invoke(window,null)!;Call(window,"Refresh");
@@ -273,6 +385,7 @@ internal static class Program
     private static void Layout(Window window,double width,double height)
     {
         var content=(FrameworkElement)window.Content;window.Width=width;window.Height=height;
+        if(window.FindName("StatusCard") is FrameworkElement status)status.MaxHeight=Math.Max(200,height*.48);
         content.Measure(new Size(width,height));content.Arrange(new Rect(0,0,width,height));content.UpdateLayout();
     }
     private static void Render(Window window,int width,int height,string path)
@@ -280,6 +393,79 @@ internal static class Program
         Layout(window,width,height);var image=new System.Windows.Media.Imaging.RenderTargetBitmap(width,height,96,96,System.Windows.Media.PixelFormats.Pbgra32);
         var background=new System.Windows.Media.DrawingVisual();using(var drawing=background.RenderOpen())drawing.DrawRectangle(window.Background,null,new Rect(0,0,width,height));image.Render(background);
         image.Render((System.Windows.Media.Visual)window.Content);var png=new System.Windows.Media.Imaging.PngBitmapEncoder();png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));using var output=File.Create(path);png.Save(output);
+    }
+    private static async Task LanUi(string endpoint)
+    {
+        var host=NewWindow();var guest=NewWindow();
+        var hc=Field<RoomClient>(host,"_client");var gc=Field<RoomClient>(guest,"_client");
+        try {
+            await hc.ConnectAsync(endpoint);await hc.CreateRoomAsync("LAN host");
+            ((ComboBox)guest.FindName("PublicProviderBox")).SelectedIndex=1;
+            ((ComboBox)guest.FindName("LanAddressBox")).Text=endpoint;
+            new System.Windows.Interop.WindowInteropHelper(guest).EnsureHandle();
+            ((Button)guest.FindName("LanTutorialButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var guide=Field<Window>(guest,"_lanTutorial");Check(guide.IsVisible,"LAN guide did not open");guide.Close();
+            ((TextBox)guest.FindName("InvitationBox")).Text=hc.Session!.Code;
+            ((Button)guest.FindName("JoinInvitationButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>gc.Session is not null && !Field<bool>(guest,"_connectionBusy"));
+            Check(Field<bool>(guest,"_usingLan") && gc.Session!.Code==hc.Session.Code,"LAN address and room-code join failed");
+            await (Task)_windowType.GetMethod("CloseOrLeaveRoom",Private)!.Invoke(guest,null)!;
+            ((ComboBox)guest.FindName("PublicProviderBox")).SelectedIndex=0;
+            ((TextBox)guest.FindName("InvitationBox")).Text=new RoomInvitation(new Uri(endpoint),hc.Session.Code).ToString();
+            ((Button)guest.FindName("JoinInvitationButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>gc.Session is not null && !Field<bool>(guest,"_connectionBusy"));
+            Check(((ComboBox)guest.FindName("PublicProviderBox")).SelectedIndex==1,"LAN invite did not select LAN mode");
+            await hc.LeaveRoomAsync(true);await Wait(()=>gc.Session is null);
+            ((TextBox)guest.FindName("InvitationBox")).Text="MabiSync/2|old-invite";
+            ((Button)guest.FindName("JoinInvitationButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>!Field<bool>(guest,"_connectionBusy"));
+            Check(gc.Session is null && ((TextBlock)guest.FindName("MessageText")).Text.Contains("已移除 EasyTier"),"Old EasyTier invite has no migration feedback");
+            var settings=Field<string>(guest,"_settings");Call(guest,"SaveSettings");
+            var json=System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(settings))!;json["publicProvider"]="easytier";File.WriteAllText(settings,json.ToJsonString());
+            var restored=(Window)Activator.CreateInstance(_windowType,Private,null,[settings,false],null)!;
+            try {Check(((ComboBox)restored.FindName("PublicProviderBox")).SelectedIndex==2,"Old provider setting did not migrate to server default");}finally{await Close(restored);}
+            Console.WriteLine("PASS WPF LAN guide, address/code join, invitation recognition and removed-provider migration; desktop inputs: 0");
+        }finally{await Close(guest);await Close(host);}
+    }
+    private static async Task CommunityUi(string endpoint)
+    {
+        var host=NewWindow();var guest=NewWindow();
+        try {
+            foreach(var window in new[]{host,guest}) {
+                var provider=(ComboBox)window.FindName("PublicProviderBox");
+                var item=(ComboBoxItem)provider.Items[2];
+                Check(item.Content.ToString()!.Contains("非长期"),"Server option omits its temporary availability");
+                var field=_windowType.GetField("_communityEndpoint",Private)!;
+                Check(((Uri)field.GetValue(window)!).Scheme=="wss","Public server is not encrypted by default");
+                field.SetValue(window,new Uri(endpoint));provider.SelectedIndex=2;
+                Check(((TextBlock)window.FindName("PublicProviderHint")).Text.Contains("非长期"),"Server choice has no availability hint");
+            }
+            var hc=Field<RoomClient>(host,"_client");var gc=Field<RoomClient>(guest,"_client");
+            ((Button)host.FindName("QuickCreateButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>hc.Session is not null && !Field<bool>(host,"_connectionBusy"));Call(host,"Refresh");
+            Check(hc.Room?.GetProperty("mode").GetString()=="ensemble","Created room lost the requested default mode");
+            Check(new Uri(hc.Endpoint)==new Uri(endpoint),"Server creation started a local room instead");
+            Check(!((ComboBox)host.FindName("PublicProviderBox")).IsEnabled,"Active room can switch connection providers");
+            var invitation=(string)_windowType.GetProperty("CurrentInvitation",Private)!.GetValue(host)!;
+            Check(RoomInvitation.Parse(invitation).Endpoint==new Uri(endpoint),"Copied server invitation has the wrong address");
+            ((TextBox)guest.FindName("InvitationBox")).Text=hc.Session!.Code;
+            ((Button)guest.FindName("JoinInvitationButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>gc.Session is not null && !Field<bool>(guest,"_connectionBusy"));Call(guest,"Refresh");
+            Check(gc.Session!.Code==hc.Session.Code,"Six-digit server room code did not join the room");
+            var memberId=gc.Session.MemberId;await gc.DisconnectAsync();
+            await (Task)_windowType.GetMethod("ReconnectRoom",Private)!.Invoke(guest,null)!;
+            Check(gc.Connected && gc.Session?.MemberId==memberId,"Server reconnect lost member identity");
+            await (Task)_windowType.GetMethod("CloseOrLeaveRoom",Private)!.Invoke(guest,null)!;
+            ((ComboBox)guest.FindName("PublicProviderBox")).SelectedIndex=0;
+            ((TextBox)guest.FindName("InvitationBox")).Text=invitation;
+            ((Button)guest.FindName("JoinInvitationButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>gc.Session is not null && !Field<bool>(guest,"_connectionBusy"));
+            Check(((ComboBox)guest.FindName("PublicProviderBox")).SelectedIndex==2,"Server invitation was mislabeled as Cloudflare");
+            await (Task)_windowType.GetMethod("CloseOrLeaveRoom",Private)!.Invoke(host,null)!;
+            await Wait(()=>gc.Session is null);Call(host,"Refresh");
+            Check(!((Button)host.FindName("CopyPublicButton")).IsEnabled,"Closed server room still shares an invitation");
+            Console.WriteLine("PASS WPF optional encrypted server entry: create, room code, invitation, reconnect and full closure; desktop inputs: 0");
+        }finally{await Close(guest);await Close(host);}
     }
     private static async Task LiveRoom(string endpoint)
     {
@@ -296,9 +482,25 @@ internal static class Program
             await guest.ConnectAsync(endpoint);await guest.JoinRoomAsync("Guest fixture",client.Session!.Code);
             await Wait(()=>client.Room?.GetProperty("members").GetArrayLength()==2);Call(window,"Refresh");
             var grid=(DataGrid)window.FindName("MembersGrid");var guestRow=grid.Items.Cast<object>().Single(r=>(string)r.GetType().GetProperty("Id")!.GetValue(r)! == guest.Session!.MemberId);
+            // A custom popup may release focus before SelectionChanged is delivered.
+            // Exercise the actual role selector without keyboard focus, keeping the group unchanged.
+            Layout(window,1180,900);
+            var editor=Children<ComboBox>(grid).Single(box=>box.SelectedValuePath=="Value" && ReferenceEquals(box.DataContext,guestRow));
+            editor.SelectedValue="initiator";
+            await Wait(()=>guest.Room?.GetProperty("members").EnumerateArray().Any(m=>m.GetProperty("id").GetString()==guest.Session!.MemberId && m.GetProperty("ensembleRole").GetString()=="initiator")==true);
+            Check(guest.Room!.Value.GetProperty("members").EnumerateArray().Single(m=>m.GetProperty("id").GetString()==client.Session!.MemberId).GetProperty("ensembleRole").GetString()=="joiner","Same-group role handoff did not demote the previous score user");
+            await Wait(()=>Field<int>(window,"_rosterEdits")==0);
+            Check(((TextBlock)window.FindName("MessageText")).Text.Contains("参与者"),"Role replacement has no explanation");
+            Layout(window,1180,900);
+            editor=Children<ComboBox>(grid).Single(box=>box.SelectedValuePath=="Value" && ReferenceEquals(box.DataContext,guestRow));
+            editor.SelectedValue="joiner";
+            await Wait(()=>guest.Room?.GetProperty("members").EnumerateArray().Any(m=>m.GetProperty("id").GetString()==guest.Session!.MemberId && m.GetProperty("ensembleRole").GetString()=="joiner")==true);
+            await client.UpdateRosterAsync("edit-ensemble-member",client.Session!.MemberId,musicRole:"initiator");Call(window,"Refresh");
             var number=new TextBox{DataContext=guestRow,Tag="group",Text="2"};
             await (Task)_windowType.GetMethod("CommitRosterNumber",Private)!.Invoke(window,[number])!;
             await Wait(()=>guest.Room?.GetProperty("members").EnumerateArray().Any(m=>m.GetProperty("id").GetString()==guest.Session!.MemberId && m.GetProperty("ensembleGroup").GetInt32()==2)==true);
+            var hostRow=grid.Items.Cast<object>().Single(r=>(string)r.GetType().GetProperty("Id")!.GetValue(r)! == client.Session!.MemberId);
+            Check(hostRow.GetType().GetProperty("GroupBackground")!.GetValue(hostRow)!.ToString()!=guestRow.GetType().GetProperty("GroupBackground")!.GetValue(guestRow)!.ToString(),"Different groups have identical group-column colors");
             Check(number.Text=="2","Committed group editor reverted to stale state");
             await client.UpdateRosterAsync("edit-ensemble-member",guest.Session!.MemberId,instrument:"远端自定义乐器");
             await Wait(()=>guest.Room?.GetProperty("members").EnumerateArray().Any(m=>m.GetProperty("instrument").GetString()=="远端自定义乐器")==true);
@@ -310,11 +512,11 @@ internal static class Program
             ((Button)window.FindName("StopButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(()=>client.Room?.GetProperty("performance").GetProperty("phase").GetString()=="stopped");Call(window,"Refresh");
             ((ComboBox)window.FindName("ModeBox")).SelectedIndex=0;
-            await Wait(()=>client.Room?.GetProperty("mode").GetString()=="emote");
+            await Wait(()=>client.Room?.GetProperty("mode").GetString()=="emote" && Field<int>(window,"_rosterEdits")==0);
             ((TextBox)window.FindName("CountdownBox")).Text="1";
             ((Button)window.FindName("StartButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(()=>client.Room?.GetProperty("performance").GetProperty("mode").GetString()=="emote" && client.Room?.GetProperty("performance").GetProperty("phase").GetString()=="stopped");
-            Call(window,"Refresh");Check(((TextBlock)window.FindName("PhaseText")).Text=="本轮已结束","Emote phase did not update");
+            Call(window,"Refresh");Check(((TextBlock)window.FindName("PhaseText")).Text is "等待全员就绪" or "全员已就绪","Ended round did not return to room readiness");
             await client.SendAsync(new {type="leave"}); await Wait(()=>client.Session is null);
             Call(window,"Refresh");
             await client.CreateRoomAsync("Second fixture");await Wait(()=>client.Room?.GetProperty("members").GetArrayLength()==1);
@@ -327,6 +529,48 @@ internal static class Program
             Console.WriteLine("PASS WPF create, stop choices, performance, leave, second room and disconnect");
         }
         finally {await Close(window);}
+    }
+    private static async Task RecoveryUi(string endpoint)
+    {
+        var host=NewWindow();var guest=NewWindow();var owner=Field<RoomClient>(host,"_client");var member=Field<RoomClient>(guest,"_client");
+        try {
+            await owner.ConnectAsync(endpoint);await owner.CreateRoomAsync("Recovery host");
+            await member.ConnectAsync(endpoint);await member.JoinRoomAsync("Recovery member",owner.Session!.Code);
+            await Wait(()=>member.Room?.GetProperty("members").GetArrayLength()==2);
+            var memberId=member.Session!.MemberId;
+            await member.DisconnectAsync();((TextBlock)guest.FindName("MessageText")).Text="房间连接已中断";
+            Call(guest,"Refresh");var reconnect=guest.FindName("ReconnectRoomButton") as Button;
+            Check(reconnect is{Visibility:Visibility.Visible,IsEnabled:true},"Disconnected member has no direct reconnect action");
+            reconnect!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>member.Connected && !Field<bool>(guest,"_connectionBusy") && member.Room?.GetProperty("members").EnumerateArray().Any(m=>m.GetProperty("id").GetString()==memberId && m.GetProperty("connected").GetBoolean())==true);
+            await Task.Yield();Call(guest,"Refresh");
+            Check(((TextBlock)guest.FindName("MessageText")).Text.Contains("重新连接"),"Successful room resume retained stale disconnection feedback");
+            await owner.DisconnectAsync();Call(host,"Refresh");
+            ((Button)host.FindName("LeaveRoomButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(()=>owner.Session is null && member.Session is null && !Field<bool>(host,"_connectionBusy"));
+            Console.WriteLine("PASS WPF resumed member replaces stale error and disconnected host closes the restored room");
+        }finally{await Close(guest);await Close(host);}
+    }
+    private static async Task OfflineCloseUi()
+    {
+        var window=NewWindow();var client=Field<RoomClient>(window,"_client");
+        var listener=new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,0);
+        listener.Start();var port=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();
+        var info=new System.Diagnostics.ProcessStartInfo("node"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,WorkingDirectory=Path.GetDirectoryName(_appPath)!};
+        info.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(_appPath)!,"Service","server","index.js"));
+        info.Environment["MABISYNC_HOST"]="127.0.0.1";info.Environment["MABISYNC_PORT"]=port.ToString();
+        using var server=System.Diagnostics.Process.Start(info)!;
+        try {
+            await server.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await client.ConnectAsync($"ws://127.0.0.1:{port}");await client.CreateRoomAsync("Offline close host");
+            await Wait(()=>client.Room is not null);server.Kill(true);await server.WaitForExitAsync();await Wait(()=>!client.Connected);Call(window,"Refresh");
+            ((Button)window.FindName("LeaveRoomButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(7));
+            while(Field<bool>(window,"_connectionBusy"))await Task.Delay(20,timeout.Token);
+            Check(client.Session is null && client.Room is null,"Unreachable service trapped the host in its old room");
+            Check(((Button)window.FindName("QuickCreateButton")).IsEnabled,"Offline room closure left create disabled");
+            Console.WriteLine("PASS WPF unreachable host service still releases the room UI for a new room");
+        }finally{if(!server.HasExited)server.Kill(true);await server.WaitForExitAsync();await Close(window);}
     }
     private static async Task EarlyEnsembleUi(string endpoint)
     {

@@ -21,6 +21,8 @@ pwsh -File tools/Test-Quick.ps1
 
 准备 Windows x64 的 `node.exe` 和官方 `cloudflared.exe`。构建会把它们与自包含 .NET 运行库放入 App，首次运行无需下载组件。许可文件在构建时从对应官方版本取得。
 
+离线构建可用 `-NodeLicensePath` 和 `-CloudflaredLicensePath` 指定与所选运行组件版本一致的原始许可文件，避免重复下载。
+
 ```powershell
 pwsh -File tools/Build-Release.ps1 -CloudflaredPath C:/Tools/cloudflared.exe
 ```

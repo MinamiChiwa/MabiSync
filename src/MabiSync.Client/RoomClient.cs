@@ -30,6 +30,10 @@ public sealed partial class RoomClient : IAsyncDisposable
     private CancellationTokenSource? _connection;
     private Task? _receiveTask, _syncTask;
     private TaskCompletionSource<bool>? _hello;
+    private TaskCompletionSource<bool>? _roomResume;
+    private SessionIdentity? _resumeIdentity;
+    private bool _resumeIdentityConfirmed;
+    private volatile bool _restoringRoom;
     private TaskCompletionSource<SessionIdentity>? _roomRequest;
     private TaskCompletionSource<bool>? _roomExit;
     private bool _closeRequested;
@@ -42,7 +46,7 @@ public sealed partial class RoomClient : IAsyncDisposable
     private SessionIdentity? _session;
     private int _syncId;
     private volatile bool _connected, _disposed;
-    public bool Connected => _connected;
+    public bool Connected => _connected && !_restoringRoom;
     public bool SupportsGameObservation { get; private set; }
     public bool SupportsFirstCycleStop { get; private set; }
     public bool SupportsRosterEditing { get; private set; }
@@ -51,6 +55,7 @@ public sealed partial class RoomClient : IAsyncDisposable
     public JsonElement? Room => Volatile.Read(ref _snapshot)?.Value;
     public event Action? Changed;
     public event Action<string>? Notice;
+    public event Action<SessionIdentity>? RoomRestored;
     public event Action<ActionReceipt>? ReceiptReported;
     public RoomClient(IMonotonicClock clock, RoomClock roomClock, ActionScheduler scheduler,TimeSpan? inactivityTimeout=null)
     {
@@ -155,6 +160,7 @@ public sealed partial class RoomClient : IAsyncDisposable
             }
             Endpoint = uri.AbsoluteUri;
             if (_session is { } old && old.Endpoint != Endpoint) _session = null;
+            _restoringRoom=_session is not null;
             _hello = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _connection = new(); _socket = new();
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _connection.Token);
@@ -165,7 +171,21 @@ public sealed partial class RoomClient : IAsyncDisposable
                 _receiveTask = ReceiveLoop(_socket, _connection.Token);
                 await _hello.Task.WaitAsync(TimeSpan.FromSeconds(10), linked.Token).ConfigureAwait(false);
                 _syncTask = SyncLoop(_connection.Token);
-                if (_session is { } session) await SendAsync(new { type = "resume", code = session.Code, token = session.Token }).ConfigureAwait(false);
+                if (_session is { } session) {
+                    _resumeIdentity=session;_resumeIdentityConfirmed=false;
+                    var resume=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);_roomResume=resume;
+                    try {
+                        await SendAsync(new { type = "resume", code = session.Code, token = session.Token }).ConfigureAwait(false);
+                        await resume.Task.WaitAsync(TimeSpan.FromSeconds(10),linked.Token).ConfigureAwait(false);
+                    }finally{_roomResume=null;_resumeIdentity=null;_resumeIdentityConfirmed=false;}
+                    _restoringRoom=false;
+                    if(RoomRestored is{} handlers)foreach(Action<SessionIdentity> handler in handlers.GetInvocationList())
+                        try{handler(session);}catch(Exception error){Trace.WriteLine(error.GetType().Name);}
+                } else _restoringRoom=false;
+                FireChanged();
+            }
+            catch(OperationCanceledException error) when(!cancellationToken.IsCancellationRequested) {
+                await DisconnectCore().ConfigureAwait(false);throw new IOException("连接中断，房间恢复尚未完成。",error);
             }
             catch { await DisconnectCore().ConfigureAwait(false); throw; }
         }
@@ -193,6 +213,7 @@ public sealed partial class RoomClient : IAsyncDisposable
             try { await task.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (WebSocketException) { }
         _socket?.Dispose(); _connection?.Dispose();
         _socket = null; _connection = null; _receiveTask = _syncTask = null;
+        _restoringRoom=false;
         _probes.Clear(); _roomClock.Reset(); _scheduler.TransportDisconnected(); FireChanged();
     }
     public async Task SendAsync(object payload)
@@ -217,7 +238,7 @@ public sealed partial class RoomClient : IAsyncDisposable
             {
                 if(_clock.NowMs-Volatile.Read(ref _lastInboundMs)>_inactivityTimeoutMs) {
                     _connected=false;_socket?.Abort();_connection?.Cancel();_scheduler.TransportDisconnected();_roomClock.Reset();
-                    FireNotice("房间连接已中断，请检查网络并在高级连接中重连。公网房主可重新建立连接并分享新邀请。");FireChanged();return;
+                    FireNotice("房间连接已中断，请点击重新连接；房主也可关闭房间。");FireChanged();return;
                 }
                 foreach (var probe in _probes) if (_clock.NowMs - probe.Value > 10_000) _probes.TryRemove(probe.Key, out _);
                 await SendProbeAsync(Interlocked.Increment(ref _syncId),token).ConfigureAwait(false);
@@ -225,7 +246,7 @@ public sealed partial class RoomClient : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { FireNotice("Clock connection failed: " + error.Message); }
+        catch (Exception) { FireNotice("房间连接已中断，请点击重新连接。"); }
     }
     private async Task ReceiveLoop(ClientWebSocket ws, CancellationToken token)
     {
@@ -251,7 +272,7 @@ public sealed partial class RoomClient : IAsyncDisposable
         }
         catch (OperationCanceledException) { }
         catch(Exception) when(token.IsCancellationRequested) { }
-        catch (Exception error) { _hello?.TrySetException(error); FireNotice("Connection ended: " + error.Message); }
+        catch (Exception error) { _hello?.TrySetException(error); FireNotice("房间连接已中断，请点击重新连接。"); }
         finally
         {
             CancelPreparations();
@@ -295,11 +316,19 @@ public sealed partial class RoomClient : IAsyncDisposable
                 break;
             case "session":
                 if (root.GetProperty("serverEpoch").GetString() != _epoch) break;
+                if(_resumeIdentity is{} expected && (root.GetProperty("code").GetString()!=expected.Code || root.GetProperty("memberId").GetString()!=expected.MemberId || root.GetProperty("token").GetString()!=expected.Token))
+                    throw new InvalidDataException("恢复的房间身份与原身份不一致。");
                 _session = new(root.GetProperty("code").GetString()!, root.GetProperty("memberId").GetString()!, root.GetProperty("token").GetString()!, _epoch!, Endpoint);
+                if(_roomResume is not null)_resumeIdentityConfirmed=true;
                 _roomRequest?.TrySetResult(_session);
                 FireChanged(); break;
             case "state":
-                if (root.GetProperty("serverEpoch").GetString() == _epoch) { Volatile.Write(ref _snapshot, new(root.GetProperty("room").Clone())); FireChanged(); }
+                if (root.GetProperty("serverEpoch").GetString() == _epoch) {
+                    var room=root.GetProperty("room").Clone();Volatile.Write(ref _snapshot,new(room));
+                    if(_resumeIdentityConfirmed && _resumeIdentity is{} resumed && room.GetProperty("code").GetString()==resumed.Code &&
+                        room.GetProperty("members").EnumerateArray().Any(m=>m.GetProperty("id").GetString()==resumed.MemberId && m.GetProperty("connected").GetBoolean()))_roomResume?.TrySetResult(true);
+                    FireChanged();
+                }
                 break;
             case "prepare-action":
             {
@@ -368,12 +397,14 @@ public sealed partial class RoomClient : IAsyncDisposable
                     failed.TrySetException(new InvalidOperationException(root.GetProperty("code").GetString()));break;
                 }
                 _roomRequest?.TrySetException(new InvalidOperationException(root.GetProperty("code").GetString() ?? "Service error"));
+                _roomResume?.TrySetException(new InvalidOperationException(root.GetProperty("code").GetString() ?? "Service error"));
                 if (root.GetProperty("code").GetString() is "SESSION_EXPIRED" or "ROOM_NOT_FOUND") { _session = null; _snapshot = null; }
-                FireNotice(root.GetProperty("code").GetString() ?? "Service error"); break;
+                FireNotice(root.GetProperty("code").GetString() ?? "Service error");FireChanged(); break;
         }
     }
     private void FailRequests()
     {
+        _roomResume?.TrySetException(new IOException("连接中断，房间身份尚未恢复。"));
         _roomExit?.TrySetException(new IOException("连接中断，未收到房间退出确认。请重连后核对。"));
         foreach(var pending in _requests.Values)pending.TrySetException(new IOException("连接中断，列表修改尚未确认。请重连后核对。"));
     }

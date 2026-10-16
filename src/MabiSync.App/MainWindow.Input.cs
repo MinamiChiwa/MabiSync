@@ -17,7 +17,8 @@ public partial class MainWindow
     private LocalStopHotkey? _hotkey;
     private readonly CancellationTokenSource _calibrationCancellation = new();
     private CancellationTokenSource? _currentCalibration;
-    private readonly Dictionary<string, ModeBindings> _modeBindings = new() { ["emote"] = new(new ChatDraftBinding()), ["independent"] = new(), ["ensemble"] = new() };
+    private readonly Dictionary<string, ModeBindings> _modeBindings = new() { ["emote"] = new(new ChatDraftBinding()), ["independent"] = new(Stop: new KeyBinding(0x20)), ["ensemble"] = new(Stop: new KeyBinding(0x20)) };
+    private readonly Dictionary<string,int> _startInputKinds = new() { ["emote"]=2, ["independent"]=1, ["ensemble"]=1 };
     private bool _editingBindings, _calibrating;
     private string? _renderedMode;
     private string? _bindingError;
@@ -67,7 +68,7 @@ public partial class MainWindow
             var binding = _modeBindings[SelectedMode]; _renderedMode = SelectedMode;
             _startButtonDraft = binding.Start as ButtonBinding; _stopButtonDraft = binding.Stop as ButtonBinding;
             ChatDraftItem.Visibility = SelectedMode == "emote" ? Visibility.Visible : Visibility.Collapsed;
-            StartInputKind.SelectedIndex = binding.Start switch { ButtonBinding => 1, ChatDraftBinding => 2, _ => 0 };
+            StartInputKind.SelectedIndex = binding.Start switch { ButtonBinding => 1, ChatDraftBinding => 2, KeyBinding => 0, _ => _startInputKinds[SelectedMode] };
             StopInputKind.SelectedIndex = binding.Stop is ButtonBinding ? 1 : 0;
             StartKeyBox.Text = binding.Start is KeyBinding start ? ShortcutText.Format(start) : "";
             StopKeyBox.Text = binding.Stop is KeyBinding stop ? ShortcutText.Format(stop) : "";
@@ -79,14 +80,15 @@ public partial class MainWindow
     }
     private void UpdateBindingDisplay()
     {
+        StartButtonHelp.Visibility = StartInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         StartKeyBox.IsEnabled = StartInputKind.SelectedIndex == 0;
         StartKeyBox.Visibility = StartInputKind.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         StopKeyBox.Visibility = StopInputKind.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         StopKeyBox.IsEnabled = StopInputKind.SelectedIndex == 0;
         CaptureStartButton.Visibility = StartInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         CaptureStopButton.Visibility = StopInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
-        static string Describe(ButtonBinding? b) => b is null ? "点击“点选按钮位置”，再点选游戏中的按钮。右键、Esc 或 F9 取消。" : $"已记录 ({b.X}, {b.Y}) · {b.ClientWidth}×{b.ClientHeight} · DPI {b.Dpi}。窗口尺寸或缩放改变后重新记录。";
-        StartCalibrationText.Text = StartInputKind.SelectedIndex switch { 1 => Describe(_startButtonDraft), 2 => "在游戏聊天框预填动作指令，回到工具点击本机就绪；开始前自动激活游戏，保持输入框打开，等待自动回车。", _ => "" };
+        static string Describe(ButtonBinding? b) => b is null ? "尚未选定按钮位置" : $"已记录 ({b.X}, {b.Y}) · {b.ClientWidth}×{b.ClientHeight} · DPI {b.Dpi}";
+        StartCalibrationText.Text = StartInputKind.SelectedIndex switch { 1 => Describe(_startButtonDraft), 2 => "在游戏聊天框预填动作指令，回到工具点击就绪；开始前自动激活游戏，保持输入框打开，等待自动回车。", _ => "" };
         StopCalibrationText.Text = StopInputKind.SelectedIndex == 1 ? Describe(_stopButtonDraft) : "";
     }
     private void ShortcutFocused(object sender, KeyboardFocusChangedEventArgs e) => ShortcutHint.Text = "请直接按下快捷键，可同时按 Ctrl / Alt / Shift。Tab 离开录入框；F9 是本机停止键。";
@@ -115,6 +117,7 @@ public partial class MainWindow
     {
         if (!_uiReady || _editingBindings || _closing) return;
         InvalidateReadiness();
+        _startInputKinds[SelectedMode] = StartInputKind.SelectedIndex;
         _bindingError = null;
         try
         {
@@ -148,7 +151,15 @@ public partial class MainWindow
         GameWindowBox.SelectedItem = choices.Single(window => window.State.Identity == game);
         Feedback("已同步操作窗口：" + state.Title, FeedbackTone.Info);
     }
-    private void RefreshWindowsClick(object sender, RoutedEventArgs e)
+    private bool _startupWindowsRefreshed;
+    private void RefreshStartupWindows()
+    {
+        if(_startupWindowsRefreshed || _closing)return;
+        _startupWindowsRefreshed=true;
+        RefreshGameWindows(false);
+    }
+    private void RefreshWindowsClick(object sender, RoutedEventArgs e)=>RefreshGameWindows(true);
+    private void RefreshGameWindows(bool notify)
     {
         if(!_uiReady || _closing)return;
         var previous = SelectedWindow;
@@ -157,6 +168,7 @@ public partial class MainWindow
         // Reuse only the exact live window. Never silently choose a new process after a restart.
         GameWindowBox.SelectedItem = windows.FirstOrDefault(w => w.State.Identity == previous);
         if (previous is null && windows.Length == 1) GameWindowBox.SelectedIndex = 0;
+        if (!notify)return;
         if (windows.Length == 0) MessageText.Text = "未发现游戏窗口，请启动游戏后刷新，或勾选“显示其他窗口”。";
         else Feedback($"已发现 {windows.Length} 个游戏窗口。",FeedbackTone.Info);
     }
@@ -238,8 +250,10 @@ public partial class MainWindow
     {
         var saved = bindings.Deserialize<Dictionary<string, ModeBindings>>() ?? [];
         saved["ensemble"] = MusicBindingSettings.Restore(saved);
-        foreach (var mode in new[] { "emote", "independent", "ensemble" }) if (saved.TryGetValue(mode, out var binding) && binding is not null)
+        foreach (var mode in new[] { "emote", "independent", "ensemble" }) if (saved.TryGetValue(mode, out var binding) && binding is not null) {
             _modeBindings[mode] = mode == "emote" ? new(binding.Start) : binding with { StopIsToggle = binding.StopIsToggle || (binding.Start is not null && binding.Start == binding.Stop) };
+            if(binding.Start is not null)_startInputKinds[mode]=binding.Start switch {ButtonBinding=>1,ChatDraftBinding=>2,_=>0};
+        }
     }
     private sealed record WindowChoice(GameWindowState State)
     {
