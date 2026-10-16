@@ -43,6 +43,9 @@ internal static class Program
     private static Window NewWindow()
     {
         var window=(Window)Activator.CreateInstance(_windowType, Private, null, [Path.Combine(_folder, Guid.NewGuid()+".json"), false], null)!;
+        var nickname=(TextBox)window.FindName("NicknameBox");
+        Check(nickname.Text=="","Fresh profile contains a prefilled nickname");
+        nickname.Text="Fixture";
         var input=(CheckBox)window.FindName("EnableGameInput");
         Check(input.IsChecked==true && !Field<InputRouter>(window,"_inputRouter").UseSimulation,"Game input is not the default active option");
         // Every integration probe explicitly opts into simulation before joining a room.

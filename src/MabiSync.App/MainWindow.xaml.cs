@@ -206,8 +206,8 @@ public partial class MainWindow : Window
     }
     private async void ConnectClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.ConnectAsync(EndpointBox.Text.Trim()); MessageText.Text = "已连接，请创建或加入房间。"; SaveSettings(); });
     private async void StartServerClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { RequireNoRoom(); await _server.StartAsync(LanCheck.IsChecked == true); EndpointBox.Text = "ws://127.0.0.1:3132"; await _client.ConnectAsync(EndpointBox.Text); MessageText.Text = _server.Status; });
-    private async void CreateClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.CreateRoomAsync(NicknameBox.Text.Trim()); SaveSettings(); });
-    private async void JoinClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.JoinRoomAsync(NicknameBox.Text.Trim(), CodeBox.Text.Trim().ToUpperInvariant()); SaveSettings(); });
+    private async void CreateClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.CreateRoomAsync(RoomNickname()); SaveSettings(); });
+    private async void JoinClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { await _client.JoinRoomAsync(RoomNickname(), CodeBox.Text.Trim().ToUpperInvariant()); SaveSettings(); });
     private async void LeaveClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {
         var host=IsRoomHost;InvalidateReadiness();if(host && !ViewConnected)await _client.ConnectAsync(_client.Endpoint);
         if(_client.Connected && _client.Session is not null)await _client.LeaveRoomAsync(host);else _client.ForgetDisconnectedRoom();
@@ -346,6 +346,7 @@ public partial class MainWindow : Window
     }
     private static string Friendly(string message) => message switch
     {
+        "BAD_NICKNAME" => "请填写 1–20 字的昵称，或通过抓包识别更新昵称。",
         "MEMBER_NOT_READY" => "选中的成员尚未全部就绪，请让成员就绪或取消勾选。",
         "NO_ENSEMBLE_INITIATOR" => "本轮没有发起者，请由房主右键设置至少一位参与的合奏发起者。",
         "CANNOT_KICK_HOST" => "房主不能将自己移出房间；请使用离开房间。",
