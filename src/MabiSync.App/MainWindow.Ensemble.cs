@@ -16,6 +16,7 @@ public partial class MainWindow
     {
         if (_captureChannels is not null) { _captureChannels.Activate(); return; }
         _captureChannels = new(SelectedWindow, _gameObservation) { Owner = this };
+        _captureChannels.GameSelected += SelectCaptureGameWindow;
         _captureChannels.Closed += (_, _) => _captureChannels = null;
         _captureChannels.Show();
     }

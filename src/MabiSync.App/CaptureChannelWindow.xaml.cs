@@ -17,6 +17,7 @@ public partial class CaptureChannelWindow : Window
     private bool _closing, _closed, _refreshing;
     private CaptureDevice[] _devices = [];
     private IReadOnlyList<CaptureConnection> _connections = [];
+    public event Action<GameWindowId>? GameSelected;
     public CaptureChannelWindow(GameWindowId? game, GameObservationCapture observer)
     {
         InitializeComponent(); _preferred = observer.Game??game; _observer = observer;
@@ -42,9 +43,16 @@ public partial class CaptureChannelWindow : Window
             RefreshGameConnections();
         }
         catch (Exception error) { CaptureStateText.Text = Explain(error); CheckButton.IsEnabled = false; }
-        finally { _refreshing = false; }
+        finally { _refreshing = false; PublishSelectedGame(); }
     }
-    private void GameChanged(object sender, SelectionChangedEventArgs e) { if (!_refreshing) RefreshGameConnections(); }
+    private void GameChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_refreshing) return;
+        PublishSelectedGame();
+        RefreshGameConnections();
+    }
+    private void PublishSelectedGame()
+    { if (!_closing && GamesBox.SelectedItem is GameChoice game) GameSelected?.Invoke(game.State.Identity); }
     private void RefreshGameConnections()
     {
         try

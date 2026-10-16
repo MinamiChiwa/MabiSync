@@ -135,6 +135,19 @@ public partial class MainWindow
     {
         Volatile.Write(ref _gameProfile, SelectedWindow is { } window ? new(window, _modeBindings["emote"], _modeBindings["independent"], _modeBindings["ensemble"]) : null);
     }
+    private void SelectCaptureGameWindow(GameWindowId game)
+    {
+        if (_closing || SelectedWindow == game) return;
+        var state = _gamePlatform.Inspect(game);
+        if (state is null || state.Identity != game)
+        { Feedback("所选游戏窗口已失效，请刷新窗口列表。", FeedbackTone.Warning); return; }
+        var windows = _gamePlatform.ListGameWindows(ShowOtherWindows.IsChecked == true).ToList();
+        if (windows.All(window => window.Identity != game)) windows.Add(state);
+        var choices = windows.Select(window => new WindowChoice(window)).ToArray();
+        GameWindowBox.ItemsSource = choices;
+        GameWindowBox.SelectedItem = choices.Single(window => window.State.Identity == game);
+        Feedback("已同步操作窗口：" + state.Title, FeedbackTone.Info);
+    }
     private void RefreshWindowsClick(object sender, RoutedEventArgs e)
     {
         if(!_uiReady || _closing)return;

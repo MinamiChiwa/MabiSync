@@ -30,7 +30,7 @@ public partial class MainWindow
     private static Brush ColorBrush(string value){var brush=new SolidColorBrush((Color)ColorConverter.ConvertFromString(value));brush.Freeze();return brush;}
     private void TunnelChanged(TunnelState state)
     {
-        if(_closing)return;
+        if(_closing || !ReferenceEquals(state,_tunnel.State))return;
         PublicStateText.Text=state.Message;PublicAddressBox.Text=state.Endpoint?.AbsoluteUri??"";
         NetworkBanner.Visibility=state.Status=="off"?Visibility.Collapsed:Visibility.Visible;
         NetworkBanner.Background=ColorBrush(state.Status switch{"ready"=>"#173D32","error"=>"#482730",_=>"#203552"});
@@ -38,6 +38,7 @@ public partial class MainWindow
         NetworkBannerText.Text=state.Status=="ready"?"公网房间已就绪 · 点击“复制邀请”分享给好友。":state.Message;
         if(state.Status=="ready")Feedback("公网连接已建立，邀请已可分享。");
         else if(state.Status=="error")Feedback(state.Message,FeedbackTone.Error);
+        else if(state.Status is "starting" or "verifying")Feedback(state.Message,FeedbackTone.Info);
         Refresh();
     }
     private void RefreshCountdown(JsonElement? round)
