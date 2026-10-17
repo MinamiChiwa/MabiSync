@@ -31,7 +31,7 @@ public partial class MainWindow
         PublicStateText.Visibility = Show(!inRoom || ActiveNetworkState.Status != "off");
         RosterCard.Visibility = Show(inRoom);
         LocalActionCard.Visibility = System.Windows.Visibility.Visible;
-        LocalActionTitle.Text = IsManualEnsembleJoiner ? "3  本机停止设置" : "3  本机动作";
+        LocalActionTitle.Text = "3  本机动作";
         ReadyButton.Style = (Style)FindResource(self?.Ready == true ? "ReadyAction" : "StopAction");
     }
 

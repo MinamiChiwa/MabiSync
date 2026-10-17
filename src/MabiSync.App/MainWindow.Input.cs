@@ -56,7 +56,8 @@ public partial class MainWindow
         ReadyButton.IsEnabled &= !_calibrating;
         StartButton.IsEnabled &= !_calibrating;
         StopBindingControls.Visibility = SelectedMode == "emote" ? Visibility.Collapsed : Visibility.Visible;
-        StartBindingControls.Visibility = StartCalibrationText.Visibility = IsManualEnsembleJoiner ? Visibility.Collapsed : Visibility.Visible;
+        StartBindingControls.Visibility = StartCalibrationText.Visibility = Visibility.Visible;
+        StartRoleHint.Visibility = IsManualEnsembleJoiner ? Visibility.Visible : Visibility.Collapsed;
         GameBindingSettings.Visibility = _inputRouter.UseSimulation ? Visibility.Collapsed : Visibility.Visible;
         InputBadge.Text = _inputRouter.UseSimulation ? "模拟模式" : "游戏输入已开启";
         InputBadgeCard.Background=ColorBrush(_inputRouter.UseSimulation?"#203552":"#173D32");InputBadge.Foreground=ColorBrush(_inputRouter.UseSimulation?"#9DC7FF":"#86E1B2");
@@ -130,7 +131,7 @@ public partial class MainWindow
         _bindingError = null;
         try
         {
-            var start = IsManualEnsembleJoiner ? _modeBindings[SelectedMode].Start : StartInputKind.SelectedIndex switch { 1 => (GameBinding?)_startButtonDraft, 2 when SelectedMode == "emote" => new ChatDraftBinding(), _ => ShortcutText.Parse(StartKeyBox.Text) };
+            var start = StartInputKind.SelectedIndex switch { 1 => (GameBinding?)_startButtonDraft, 2 when SelectedMode == "emote" => new ChatDraftBinding(), _ => ShortcutText.Parse(StartKeyBox.Text) };
             var stop = SelectedMode == "emote" ? null : StopInputKind.SelectedIndex == 1 ? (GameBinding?)_stopButtonDraft : ShortcutText.Parse(StopKeyBox.Text);
             _modeBindings[SelectedMode] = new(start, stop, SelectedMode != "emote" && (StopIsToggleBox.IsChecked == true || (start is not null && start == stop)));
         }
@@ -145,7 +146,11 @@ public partial class MainWindow
     }
     private void RebuildGameProfile()
     {
-        Volatile.Write(ref _gameProfile, SelectedWindow is { } window ? new(window, _modeBindings["emote"], _modeBindings["independent"], _modeBindings["ensemble"]) : null);
+        var ensemble=_modeBindings["ensemble"];
+        // A manual joiner's saved start is only a preference for a later role.
+        // It must not turn the active stop key into a start/stop toggle.
+        if(IsManualEnsembleJoiner)ensemble=ensemble with {Start=null,StopIsToggle=false};
+        Volatile.Write(ref _gameProfile, SelectedWindow is { } window ? new(window, _modeBindings["emote"], _modeBindings["independent"], ensemble) : null);
     }
     private void SelectCaptureGameWindow(GameWindowId game)
     {
@@ -218,7 +223,7 @@ public partial class MainWindow
         if (SelectedMode == "emote" && bindings.Start is ChatDraftBinding) _gameInput.ConfirmChatDraft();
         if (SelectedMode != "emote" && bindings.Stop is null)
             throw new InvalidOperationException("请先设置停止按键，或点选游戏中的停止按钮。");
-        if (SelectedMode != "emote" && bindings.StopIsToggle)
+        if (SelectedMode != "emote" && !IsManualEnsembleJoiner && bindings.StopIsToggle)
             throw new InvalidOperationException("开始和停止需要使用不同的按键或按钮，请重新设置停止操作。");
         foreach (var kind in SelectedMode == "emote" ? new[] { "start" } : IsManualEnsembleJoiner ? new[] { "stop" } : new[] { "start", "stop" })
         {

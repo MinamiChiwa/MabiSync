@@ -32,7 +32,7 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         Dispatcher.CurrentDispatcher.BeginInvoke(async () =>
         {
-            try { await HeaderActions();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
+            try { await HeaderActions();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await GrowingRosterAndJoinerBindings(); await LongScoreDisplay(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
             catch (Exception error) { _failed++; Console.WriteLine("FAIL " + Unwrap(error)); }
             finally { app.Shutdown(); Dispatcher.ExitAllFrames(); }
         });
@@ -188,6 +188,17 @@ internal static class Program
             ((ComboBox)window.FindName("ModeBox")).SelectedIndex=0;
             Call(window,"ValidateLocalReadiness");
             Check(!((TextBlock)window.FindName("InputStateText")).Text.StartsWith("F9："),"UI advertises F9 when no hotkey is registered");
+            var client=Field<RoomClient>(window,"_client");
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","member","fixture","epoch","ws://127.0.0.1:3132/"));
+            SetSnapshot(client,["host","member"]);((ComboBox)window.FindName("ModeBox")).SelectedIndex=1;Call(window,"Refresh");
+            ((ComboBox)window.FindName("StartInputKind")).SelectedIndex=0;((TextBox)window.FindName("StartKeyBox")).Text="Space";Call(window,"InputChanged");
+            Call(window,"ValidateLocalReadiness");
+            Check(Field<GameInputProfile>(window,"_gameProfile").Ensemble is {Start:null,StopIsToggle:false},"A manual joiner's unused start made its stop a toggle");
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","host","fixture","epoch","ws://127.0.0.1:3132/"));Call(window,"Refresh");
+            Check(Field<GameInputProfile>(window,"_gameProfile").Ensemble.Start is KeyBinding {Key:0x20},"Promoting to initiator did not restore the saved start binding");
+            try{Call(window,"ValidateLocalReadiness");throw new Exception("Initiator accepted the same start/stop key");}
+            catch(TargetInvocationException error) when(error.InnerException is InvalidOperationException issue && issue.Message.Contains("不同")){}
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,null);typeof(RoomClient).GetField("_snapshot",Private)!.SetValue(client,null);Call(window,"Refresh");
             ((CheckBox)window.FindName("EnableGameInput")).IsChecked=false;
             Console.WriteLine("PASS WPF missing global hotkey does not block real input readiness; desktop inputs: 0");
             var observer=Field<object>(window,"_gameObservation");var observationType=observer.GetType();
@@ -381,6 +392,59 @@ internal static class Program
             Console.WriteLine("PASS WPF host readiness, status card, progress and instrument column");
         } finally {typeof(RoomClient).GetField("_connected",Private)!.SetValue(client,false);await Close(window);}
         static bool IsDescendant(DependencyObject child,DependencyObject parent) {for(DependencyObject? p=child;p is not null;p=LogicalTreeHelper.GetParent(p)??System.Windows.Media.VisualTreeHelper.GetParent(p))if(ReferenceEquals(p,parent))return true;return false;}
+    }
+    private static async Task GrowingRosterAndJoinerBindings()
+    {
+        var window=NewWindow();var client=Field<RoomClient>(window,"_client");
+        try {
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","host","fixture","epoch","ws://127.0.0.1:3132/"));
+            SetSnapshot(client,["host","member"]);Call(window,"Refresh");Layout(window,1180,900);
+            var grid=(DataGrid)window.FindName("MembersGrid");var smallHeight=grid.ActualHeight;
+            SetSnapshot(client,["host",..Enumerable.Range(1,23).Select(i=>"member-"+i)]);Call(window,"Refresh");
+            foreach(var width in new[]{780,1180}) {
+                Layout(window,width,900);
+                Check(grid.ActualHeight>=grid.MinRowHeight*24+grid.ColumnHeaderHeight && grid.ActualHeight>smallHeight,"24-member roster is clipped instead of expanding its card");
+                Check(ScrollViewer.GetVerticalScrollBarVisibility(grid)==ScrollBarVisibility.Disabled,"Roster still has a nested vertical scrollbar");
+            }
+            var images=Environment.GetEnvironmentVariable("MABISYNC_UI_OUTPUT");
+            if(images is not null){((ScrollViewer)window.FindName("WorkflowScroll")).ScrollToBottom();Render(window,1180,900,Path.Combine(images,"roster-24-members.png"));}
+            SetSnapshot(client,["host","member"]);
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","member","fixture","epoch","ws://127.0.0.1:3132/"));
+            Call(window,"Refresh");((CheckBox)window.FindName("EnableGameInput")).IsChecked=true;Layout(window,1180,900);
+            Check(((FrameworkElement)window.FindName("StartBindingControls")).Visibility==Visibility.Visible,"Manual joiner cannot edit its saved start binding");
+            Check(((TextBlock)window.FindName("StartRoleHint")).Text.Contains("参与者不触发") && ((TextBlock)window.FindName("StartRoleHint")).Visibility==Visibility.Visible,"Manual joiner has no clear start suppression label");
+            ((ComboBox)window.FindName("StartInputKind")).SelectedIndex=0;
+            ((TextBox)window.FindName("StartKeyBox")).Text="F8";
+            Call(window,"InputChanged"); // ShortcutKeyDown invokes this after recording the key.
+            Check(Field<Dictionary<string,ModeBindings>>(window,"_modeBindings")["ensemble"].Start is KeyBinding {Key:0x77},"Manual joiner start binding edit was discarded");
+            var capabilities=JsonSerializer.SerializeToElement(_windowType.GetMethod("LocalCapabilities",Private)!.Invoke(window,null));
+            Check(!capabilities.GetProperty("canStart").GetBoolean(),"Editing a joiner's start binding enabled its automatic start");
+            Call(window,"Refresh");Call(window,"RenderBindings");
+            Check(((TextBox)window.FindName("StartKeyBox")).Text=="F8","Room refresh lost the joiner's binding");
+            if(images is not null)Render(window,1180,1000,Path.Combine(images,"joiner-start-settings.png"));
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","host","fixture","epoch","ws://127.0.0.1:3132/"));Call(window,"Refresh");
+            Check(((FrameworkElement)window.FindName("StartRoleHint")).Visibility==Visibility.Collapsed,"Initiator still displays joiner suppression");
+            ((ComboBox)window.FindName("ModeBox")).SelectedIndex=0;
+            Check(((FrameworkElement)window.FindName("StartRoleHint")).Visibility==Visibility.Collapsed,"Joiner suppression leaked into emote mode");
+            Console.WriteLine("PASS WPF roster grows for 24 members; manual joiner can save a start binding without enabling automatic start");
+        }finally{await Close(window);}
+    }
+    private static async Task LongScoreDisplay()
+    {
+        var window=NewWindow();var client=Field<RoomClient>(window,"_client");
+        try {
+            typeof(RoomClient).GetField("_session",Private)!.SetValue(client,new SessionIdentity("FIXTUR","host","fixture","epoch","ws://127.0.0.1:3132/"));
+            var score=new {title="Long fixture",wholeScoreDurationSeconds=601.25,selectedDurationSeconds=200.5,issue="Fixture estimate"};
+            var room=JsonSerializer.SerializeToElement(new {code="FIXTUR",mode="ensemble",hostId="host",leaderId="host",performance=(object?)null,observedCharacters=Array.Empty<object>(),
+                members=new[]{new {id="host",nickname="host",role="host",connected=true,ready=false,ensembleGroup=1,ensembleOrder=1,ensembleRole="initiator",gameIdentity=(object?)null,music=score}}});
+            var type=typeof(RoomClient).GetNestedType("Snapshot",BindingFlags.NonPublic)!;
+            typeof(RoomClient).GetField("_snapshot",Private)!.SetValue(client,Activator.CreateInstance(type,[room]));
+            typeof(RoomClient).GetField("_connected",Private)!.SetValue(client,true);
+            Call(window,"Refresh");Layout(window,1180,900);
+            var display=((TextBlock)window.FindName("ScoreObservationText")).Text;
+            Check(display.Contains("601.25") && display.Contains("200.5"),"Long score display capped or confused full-score and selected-track durations");
+            Console.WriteLine("PASS WPF long score displays full and selected durations above 200 seconds without capping");
+        }finally{typeof(RoomClient).GetField("_connected",Private)!.SetValue(client,false);await Close(window);}
     }
     private static IEnumerable<T> Children<T>(DependencyObject root) where T:DependencyObject
     {

@@ -70,6 +70,7 @@ public partial class MainWindow
         if (SelectedMode == "ensemble" && !RoundActive &&
             ((_localEnsembleLayout is not null && signature != _localEnsembleLayout) || (_wasEnsembleReady && self?.Ready != true)))
             InvalidateReadiness();
+        if(signature!=_localEnsembleLayout)RebuildGameProfile();
         _localEnsembleLayout = signature; _wasEnsembleReady = self?.Ready == true;
     }
 }

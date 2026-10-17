@@ -109,6 +109,20 @@ Add("Captured music associates the local actor with its score and keeps full and
     Check(music.ScoreSha256 is { Length: 64 }, "Score fingerprint missing");
     observer.Accept(120693, Id(11)); Check(observer.Current.Music is null, "Stopped local music remained active");
 });
+Add("Captured long scores retain complete durations above 200 seconds including tempo changes and distinct tracks", () =>
+{
+    var observer=new TwGameObserver();observer.AcceptPersonalId(101);observer.AcceptIdentity(new(101,3,"Local",11));
+    foreach(var seconds in new[]{200,201,600,3600}) {
+        var mml="MML@T60L4"+new string('C',seconds)+";";
+        observer.Reset("next fixture");observer.AcceptPersonalId(101);observer.AcceptIdentity(new(101,3,"Local",11));
+        observer.Accept(120412,Concert(7,101,mml),1000);observer.Accept(120692,PlayParts(11,7,0));
+        Check(observer.Current.Music?.WholeScoreDurationSeconds==seconds && observer.Current.Music.SelectedDurationSeconds==seconds && observer.Current.Music.AutomaticStopAvailable,"Long score duration was capped or lost at "+seconds);
+    }
+    observer.Reset("next fixture");observer.AcceptPersonalId(101);observer.AcceptIdentity(new(101,3,"Local",11));
+    observer.Accept(120412,Concert(8,101,"MML@T120L4"+new string('C',200)+"T60"+new string('C',300)+","+new string('C',600)+";"),1000);
+    observer.Accept(120692,PlayParts(11,8,0));
+    Check(observer.Current.Music?.WholeScoreDurationSeconds==500 && observer.Current.Music.SelectedDurationSeconds==400,"Long shared tempo or distinct track durations changed");
+});
 Add("Unreadable score or invalid selected channels do not remove valid local identity or fabricate a duration", () =>
 {
     var observer = new TwGameObserver(); observer.AcceptPersonalId(101); observer.AcceptIdentity(new(101, 3, "Local", 11));

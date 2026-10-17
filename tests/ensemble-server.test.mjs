@@ -21,6 +21,17 @@ test('score summaries remain local, bounded and informational, and expire with o
   acceptObservation(m,{...msg,sequence:3,music:null},100); assert.equal(memberMusic(m,100),null);
 });
 
+test('long score durations above 200 seconds survive room observation without truncation', () => {
+  const s=setup(), m=s.members.get('a');
+  const music={concertId:'7',performerCharacterId:'101',hostCharacterId:'101',title:'Long fixture',isLoop:true,
+    selectedChannels:[0],scoreSha256:'a'.repeat(64),wholeScoreDurationSeconds:601.25,selectedDurationSeconds:200.5,
+    estimatedStartServerMs:100,timingSource:'tw-receive-offset-v1'};
+  acceptObservation(m,{generation:'g',sequence:2,status:'identified',identity:m.gameObservation.identity,music},100);
+  assert.equal(memberMusic(m,100).wholeScoreDurationSeconds,601.25);
+  assert.equal(memberMusic(m,100).selectedDurationSeconds,200.5);
+  assert.equal(memberMusic(m,100).automaticStopAvailable,true);
+});
+
 function setup() {
   const members = new Map(['a','b','c'].map(id => [id, { id, nickname: id, ws: {}, ready: true }]));
   const room = { members, performance: null };
