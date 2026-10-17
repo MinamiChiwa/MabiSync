@@ -83,7 +83,7 @@ public static partial class CaptureChannels
     public static Task CheckAsync(GameWindowId game, CaptureDevice device, CaptureConnection connection, IProgress<ChannelCheck> progress, CancellationToken token) => Task.Run(() =>
     {
         if (!WindowsGamePlatform.IsProcessRunning(game) || !Connections(game.ProcessId).Contains(connection)) throw new IOException("所选游戏或连接已变化，请重新选择。");
-        if (!device.Addresses.Contains(connection.LocalAddress)) throw new IOException("所选网卡不包含这条连接的本机地址。");
+        if (!device.Addresses.Contains(connection.LocalAddress)) throw new IOException("所选网卡与游戏连接不匹配，请换一张网卡后重试。");
         var error = new StringBuilder(256);
         var handle = pcap_open_live(device.Name, 65536, 0, 100, error);
         if (handle == 0) throw new IOException("Npcap 无法打开网卡：" + error);
@@ -92,7 +92,7 @@ public static partial class CaptureChannels
             if (pcap_compile(handle, out var filter, connection.Filter, 1, uint.MaxValue) != 0) throw new IOException("无法建立游戏连接过滤器。");
             try { if (pcap_setfilter(handle, ref filter) != 0) throw new IOException("无法应用游戏连接过滤器。"); }
             finally { pcap_freecode(ref filter); }
-            if (pcap_setnonblock(handle, 1, error) != 0) throw new IOException("Npcap 无法使用非阻塞模式。");
+            if (pcap_setnonblock(handle, 1, error) != 0) throw new IOException("Npcap 无法启动抓包，请检查安装或尝试其他网卡。");
             var timer = System.Diagnostics.Stopwatch.StartNew(); long count = 0; double last = -1;
             while (!token.IsCancellationRequested && timer.Elapsed.TotalSeconds < 30)
             {

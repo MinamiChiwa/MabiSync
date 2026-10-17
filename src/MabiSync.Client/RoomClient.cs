@@ -101,7 +101,7 @@ public sealed partial class RoomClient : IAsyncDisposable
         await _send.WaitAsync(token).ConfigureAwait(false);
         try {
             var ws=_socket;
-            if(ws?.State!=WebSocketState.Open)throw new IOException("Service is disconnected");
+            if(ws?.State!=WebSocketState.Open)throw new IOException("房间连接已断开，请点击“重新连接”。");
             var t1=_clock.NowMs;_probes[id]=t1;
             var bytes=JsonSerializer.SerializeToUtf8Bytes(new{type="sync",id,t1});
             await ws.SendAsync(bytes.AsMemory(),WebSocketMessageType.Text,true,token).ConfigureAwait(false);
@@ -147,7 +147,7 @@ public sealed partial class RoomClient : IAsyncDisposable
     }
     public async Task ConnectAsync(string endpoint, CancellationToken cancellationToken = default)
     {
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme is not ("ws" or "wss") || !string.IsNullOrEmpty(uri.UserInfo)) throw new ArgumentException("Use a ws:// or wss:// service address", nameof(endpoint));
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme is not ("ws" or "wss") || !string.IsNullOrEmpty(uri.UserInfo)) throw new ArgumentException("服务地址需以 ws:// 或 wss:// 开头，请复制房主提供的完整地址。", nameof(endpoint));
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -185,7 +185,7 @@ public sealed partial class RoomClient : IAsyncDisposable
                 FireChanged();
             }
             catch(OperationCanceledException error) when(!cancellationToken.IsCancellationRequested) {
-                await DisconnectCore().ConfigureAwait(false);throw new IOException("连接中断，房间恢复尚未完成。",error);
+                await DisconnectCore().ConfigureAwait(false);throw new IOException("连接已中断，尚未重新加入房间。请点击“重新连接”。",error);
             }
             catch { await DisconnectCore().ConfigureAwait(false); throw; }
         }
@@ -207,7 +207,7 @@ public sealed partial class RoomClient : IAsyncDisposable
     {
         CancelPreparations();
         FailRequests();
-        _roomRequest?.TrySetException(new IOException("Service is disconnected"));
+        _roomRequest?.TrySetException(new IOException("房间连接已断开，请点击“重新连接”。"));
         _connected = false; _connection?.Cancel(); _socket?.Abort();
         foreach (var task in new[] { _receiveTask, _syncTask }) if (task is not null)
             try { await task.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (WebSocketException) { }
@@ -223,7 +223,7 @@ public sealed partial class RoomClient : IAsyncDisposable
         try
         {
             var ws = _socket;
-            if (ws?.State != WebSocketState.Open) throw new IOException("Service is disconnected");
+            if (ws?.State != WebSocketState.Open) throw new IOException("房间连接已断开，请点击“重新连接”。");
             var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, Json);
             await ws.SendAsync(bytes.AsMemory(), WebSocketMessageType.Text, true, token).ConfigureAwait(false);
         }
@@ -261,7 +261,7 @@ public sealed partial class RoomClient : IAsyncDisposable
                 {
                     result = await ws.ReceiveAsync(buffer.AsMemory(), token).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close) return;
-                    if (result.MessageType != WebSocketMessageType.Text || message.Length + result.Count > 65_536) throw new InvalidDataException("Unsupported service message");
+                    if (result.MessageType != WebSocketMessageType.Text || message.Length + result.Count > 65_536) throw new InvalidDataException("无法识别服务器返回的数据，请更新工具后重新连接。");
                     message.Write(buffer, 0, result.Count);
                 } while (!result.EndOfMessage);
                 var t4 = _clock.NowMs;
@@ -277,7 +277,7 @@ public sealed partial class RoomClient : IAsyncDisposable
         {
             CancelPreparations();
             FailRequests();
-            _roomRequest?.TrySetException(new IOException("Service is disconnected"));
+            _roomRequest?.TrySetException(new IOException("房间连接已断开，请点击“重新连接”。"));
             _connected = false; _hello?.TrySetException(new IOException("Handshake or connection ended"));
             _connection?.Cancel(); _scheduler.TransportDisconnected(); _roomClock.Reset(); FireChanged();
         }
@@ -289,12 +289,12 @@ public sealed partial class RoomClient : IAsyncDisposable
         {
             case "hello":
             {
-                if (root.GetProperty("product").GetString() != "MabiSync" || root.GetProperty("protocolVersion").GetInt32() != 1) throw new InvalidDataException("Incompatible room product or protocol");
+                if (root.GetProperty("product").GetString() != "MabiSync" || root.GetProperty("protocolVersion").GetInt32() != 1) throw new InvalidDataException("此地址不是兼容的 MabiSync 服务器，请检查地址，或更新工具与服务器。");
                 SupportsGameObservation = root.TryGetProperty("features", out var features) && features.TryGetProperty("gameObservation", out var observation) && observation.ValueKind == JsonValueKind.Number && observation.GetInt32() == 1;
                 SupportsFirstCycleStop = features.ValueKind == JsonValueKind.Object && features.TryGetProperty("firstCycleStop", out var cycle) && cycle.ValueKind == JsonValueKind.Number && cycle.GetInt32() == 1;
                 SupportsRosterEditing=features.ValueKind==JsonValueKind.Object && features.TryGetProperty("rosterEditing",out var edit) && edit.ValueKind==JsonValueKind.Number && edit.GetInt32()==1;
                 var epoch = root.GetProperty("serverEpoch").GetString()!;
-                if (!Guid.TryParse(epoch, out _)) throw new InvalidDataException("Invalid service epoch");
+                if (!Guid.TryParse(epoch, out _)) throw new InvalidDataException("服务器返回的信息不完整，请重新连接。");
                 if (_epoch != epoch)
                 {
                     CancelPreparations();
@@ -304,7 +304,7 @@ public sealed partial class RoomClient : IAsyncDisposable
                 await SendAsync(new { type = "hello", product = "MabiSync", protocolVersion = 1 }).ConfigureAwait(false); break;
             }
             case "hello-accepted":
-                if (root.GetProperty("serverEpoch").GetString() != _epoch) throw new InvalidDataException("Service restarted during handshake");
+                if (root.GetProperty("serverEpoch").GetString() != _epoch) throw new InvalidDataException("服务器刚刚重启，请重新连接。");
                 _connected = true; _hello?.TrySetResult(true); FireChanged(); break;
             case "sync":
                 if (root.GetProperty("serverEpoch").GetString() == _epoch && _probes.TryRemove(root.GetProperty("id").GetInt32(), out var t1) && root.GetProperty("t1").GetDouble() == t1)
@@ -317,7 +317,7 @@ public sealed partial class RoomClient : IAsyncDisposable
             case "session":
                 if (root.GetProperty("serverEpoch").GetString() != _epoch) break;
                 if(_resumeIdentity is{} expected && (root.GetProperty("code").GetString()!=expected.Code || root.GetProperty("memberId").GetString()!=expected.MemberId || root.GetProperty("token").GetString()!=expected.Token))
-                    throw new InvalidDataException("恢复的房间身份与原身份不一致。");
+                    throw new InvalidDataException("重连后未能恢复原来的成员身份，请重新加入房间。");
                 _session = new(root.GetProperty("code").GetString()!, root.GetProperty("memberId").GetString()!, root.GetProperty("token").GetString()!, _epoch!, Endpoint);
                 if(_roomResume is not null)_resumeIdentityConfirmed=true;
                 _roomRequest?.TrySetResult(_session);
@@ -404,7 +404,7 @@ public sealed partial class RoomClient : IAsyncDisposable
     }
     private void FailRequests()
     {
-        _roomResume?.TrySetException(new IOException("连接中断，房间身份尚未恢复。"));
+        _roomResume?.TrySetException(new IOException("连接已中断，尚未恢复原来的成员身份。请点击“重新连接”。"));
         _roomExit?.TrySetException(new IOException("连接中断，未收到房间退出确认。请重连后核对。"));
         foreach(var pending in _requests.Values)pending.TrySetException(new IOException("连接中断，列表修改尚未确认。请重连后核对。"));
     }

@@ -21,7 +21,7 @@ internal sealed class MemberRow(string id,Action<MemberRow>? selectionChanged=nu
     public Brush NameBrush=>Brush(IsSelf?"#9DC7FF":"#E2E8F0");
     public bool ReadOnly=>!CanEdit;
     public string JoinState {get;private set;}="unconfirmed";
-    public string JoinFeedback {get;private set;}="等待游戏事件核对";
+    public string JoinFeedback {get;private set;}="等待识别加入顺序";
     public Brush JoinBrush=>Brush(JoinState switch{"correct"=>"#86E1B2","wrong"=>"#FFAFB9","pending"=>"#F6D58B",_=>"#C2CEE0"});
     public Brush JoinBackground=>Brush(JoinState switch{"correct"=>"#173D32","wrong"=>"#482730","pending"=>"#44391F",_=>"#2A3547"});
     public Brush StatusBrush=>Brush(Status switch{"已就绪"=>"#86E1B2","未就绪"=>"#FFAFB9","房主"=>"#9DC7FF",_=>"#B6C3D5"});
@@ -54,7 +54,8 @@ internal sealed class MemberRow(string id,Action<MemberRow>? selectionChanged=nu
         IsSelf=isSelf;
         _selected=!member.TryGetProperty("selected",out var selected)||selected.GetBoolean();
         JoinState=member.TryGetProperty("ensembleFeedback",out var feedback)&&feedback.ValueKind==JsonValueKind.Object?feedback.GetProperty("state").GetString()??"unconfirmed":"unconfirmed";
-        JoinFeedback=feedback.ValueKind==JsonValueKind.Object?feedback.GetProperty("text").GetString()??"等待核对":"等待游戏事件核对";
+        JoinFeedback=feedback.ValueKind==JsonValueKind.Object?feedback.GetProperty("text").GetString()??"等待核对":"等待识别加入顺序";
+        if(JoinFeedback=="等待游戏事件核对")JoinFeedback="等待识别加入顺序";
         if(feedback.ValueKind==JsonValueKind.Object && feedback.TryGetProperty("actualOrder",out var actual))JoinFeedback+=$" · 实际第 {actual.GetInt32()} 位";
         if(old.Nickname!=Nickname)Changed(nameof(Nickname));if(old.Role!=Role)Changed(nameof(Role));
         if(old.Status!=Status){Changed(nameof(Status));Changed(nameof(StatusBrush));Changed(nameof(StatusBackground));}

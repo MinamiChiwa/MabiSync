@@ -41,14 +41,17 @@ public partial class MainWindow
         if (_registerSystemHotkey) _hotkey = new(StopLocally);
         RenderBindings();
         ReloadInstruments();
-        if (_registerSystemHotkey && _hotkey?.Registered != true) MessageText.Text = "F9已被其他程序占用，本机停止仍可使用窗口按钮。";
+        if (_registerSystemHotkey && _hotkey?.Registered != true)
+            Feedback("停止快捷键被占用，可使用工具中的本机停止按钮。",FeedbackTone.Warning);
+        else if(_hotkey?.Shortcut is{} shortcut && shortcut!="F9")
+            Feedback($"F9 被其他程序占用，本机停止改用 {shortcut}。",FeedbackTone.Info);
     }
     private void RefreshInputs(bool active)
     {
         if (_renderedMode != SelectedMode) RenderBindings();
         InputControls.IsEnabled = !active && !_calibrating;
         LocalActionSummary.Text=_inputRouter.UseSimulation?"模拟模式":(GameWindowBox.SelectedItem as WindowChoice)?.State is{} selected
-            ?string.IsNullOrWhiteSpace(selected.Title)?System.IO.Path.GetFileName(selected.Identity.ImagePath):selected.Title:"选择窗口并设置绑定";
+            ?string.IsNullOrWhiteSpace(selected.Title)?System.IO.Path.GetFileName(selected.Identity.ImagePath):selected.Title:"选择游戏窗口并设置操作";
         LocalActionSummary.ToolTip=(GameWindowBox.SelectedItem as WindowChoice)?.Label;
         ReadyButton.IsEnabled &= !_calibrating;
         StartButton.IsEnabled &= !_calibrating;
@@ -57,8 +60,12 @@ public partial class MainWindow
         GameBindingSettings.Visibility = _inputRouter.UseSimulation ? Visibility.Collapsed : Visibility.Visible;
         InputBadge.Text = _inputRouter.UseSimulation ? "模拟模式" : "游戏输入已开启";
         InputBadgeCard.Background=ColorBrush(_inputRouter.UseSimulation?"#203552":"#173D32");InputBadge.Foreground=ColorBrush(_inputRouter.UseSimulation?"#9DC7FF":"#86E1B2");
-        InputStateText.Text = _bindingError ?? (_inputRouter.UseSimulation ? "模拟模式可先检查联机与倒计时。准备实测时开启“操作游戏”。" :
-            SelectedMode == "emote" ? "F9：取消本机待触发任务。" : "F9：本机停止。");
+        var stopHint=_hotkey?.Shortcut is{} shortcut
+            ? shortcut+(SelectedMode=="emote"?"：取消本机待触发任务。":"：本机停止。")
+            : "停止快捷键不可用，使用工具中的"+(SelectedMode=="emote"?"取消本机任务":"本机停止")+"按钮。";
+        InputStateText.Text = _bindingError ?? (_inputRouter.UseSimulation ? "模拟模式可先检查联机与倒计时。准备实测时开启“操作游戏”。" : stopHint);
+        InputStateText.Foreground=ColorBrush(_hotkey?.Registered==true || _inputRouter.UseSimulation?"#A8B4C7":"#F6D58B");
+        LocalStopButton.ToolTip=stopHint;
     }
     private void RenderBindings()
     {
@@ -80,6 +87,8 @@ public partial class MainWindow
     }
     private void UpdateBindingDisplay()
     {
+        var pickerCancel="工具会暂时隐藏，点击游戏按钮记录位置；右键、Esc"+(_hotkey?.Shortcut is{} shortcut?" 或 "+shortcut:"")+" 取消。窗口尺寸或缩放改变后请重新记录。";
+        CaptureStartButton.ToolTip=CaptureStopButton.ToolTip=pickerCancel;
         StartButtonHelp.Visibility = StartInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         StartKeyBox.IsEnabled = StartInputKind.SelectedIndex == 0;
         StartKeyBox.Visibility = StartInputKind.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -88,10 +97,10 @@ public partial class MainWindow
         CaptureStartButton.Visibility = StartInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         CaptureStopButton.Visibility = StopInputKind.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         static string Describe(ButtonBinding? b) => b is null ? "尚未选定按钮位置" : $"已记录 ({b.X}, {b.Y}) · {b.ClientWidth}×{b.ClientHeight} · DPI {b.Dpi}";
-        StartCalibrationText.Text = StartInputKind.SelectedIndex switch { 1 => Describe(_startButtonDraft), 2 => "在游戏聊天框预填动作指令，回到工具点击就绪；开始前自动激活游戏，保持输入框打开，等待自动回车。", _ => "" };
+        StartCalibrationText.Text = StartInputKind.SelectedIndex switch { 1 => Describe(_startButtonDraft), 2 => "在游戏聊天框填好动作指令，再回工具点击“就绪”。保持聊天框打开，开始时会自动切回游戏并按一次回车。", _ => "" };
         StopCalibrationText.Text = StopInputKind.SelectedIndex == 1 ? Describe(_stopButtonDraft) : "";
     }
-    private void ShortcutFocused(object sender, KeyboardFocusChangedEventArgs e) => ShortcutHint.Text = "请直接按下快捷键，可同时按 Ctrl / Alt / Shift。Tab 离开录入框；F9 是本机停止键。";
+    private void ShortcutFocused(object sender, KeyboardFocusChangedEventArgs e) => ShortcutHint.Text = "请直接按下快捷键，可同时按 Ctrl / Alt / Shift。Tab 离开录入框；F9 及其组合键用于本机停止。";
     private void ShortcutBlurred(object sender, KeyboardFocusChangedEventArgs e) => ShortcutHint.Text = "";
     private void ShortcutKeyDown(object sender, KeyEventArgs e)
     {
@@ -189,7 +198,7 @@ public partial class MainWindow
                 Hide();
                 await _gamePlatform.ActivateAsync(window,cancellation.Token);
                 var state=_gamePlatform.Inspect(window)??throw new InvalidOperationException("游戏窗口已失效。");
-                var picker=new ButtonPickerWindow(_gamePlatform,window,state.Client);
+                var picker=new ButtonPickerWindow(_gamePlatform,window,state.Client,_hotkey?.Shortcut);
                 var binding=await picker.PickAsync(cancellation.Token);
                 if(binding is null){Feedback("已取消位置记录，原按钮设置已保留。",FeedbackTone.Info);return;}
                 if (start) _startButtonDraft=binding; else _stopButtonDraft=binding;
@@ -205,11 +214,12 @@ public partial class MainWindow
         if (_calibrating) throw new InvalidOperationException("正在记录按钮位置，请完成后再就绪。");
         if (_inputRouter.UseSimulation) return;
         if (_bindingError is not null) throw new InvalidOperationException(_bindingError);
-        if (_hotkey?.Registered != true) throw new InvalidOperationException("F9停止键不可用，请先解除其他程序的F9占用后重启工具。");
         var bindings = _modeBindings[SelectedMode];
         if (SelectedMode == "emote" && bindings.Start is ChatDraftBinding) _gameInput.ConfirmChatDraft();
-        if (SelectedMode != "emote" && (bindings.Stop is null || bindings.StopIsToggle))
-            throw new InvalidOperationException("普通演奏输入目前需要专用停止绑定。开停切换仍待实时演奏状态接入，暂不能用于自动停止。");
+        if (SelectedMode != "emote" && bindings.Stop is null)
+            throw new InvalidOperationException("请先设置停止按键，或点选游戏中的停止按钮。");
+        if (SelectedMode != "emote" && bindings.StopIsToggle)
+            throw new InvalidOperationException("开始和停止需要使用不同的按键或按钮，请重新设置停止操作。");
         foreach (var kind in SelectedMode == "emote" ? new[] { "start" } : IsManualEnsembleJoiner ? new[] { "stop" } : new[] { "start", "stop" })
         {
             var check = new ScheduledAction(Guid.NewGuid().ToString(), "readiness-only", kind, 0, "local") { Mode = SelectedMode };

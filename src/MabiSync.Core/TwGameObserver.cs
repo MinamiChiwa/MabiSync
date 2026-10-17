@@ -15,7 +15,7 @@ public sealed class TwGameObserver
     private long _sequence;
     public GameObservation Current { get; private set; }
     public event Action<GameObservation>? Changed;
-    public TwGameObserver() => Current = new(_generation, ++_sequence, null, null, "等待角色身份；请切换地图或重新登录角色。");
+    public TwGameObserver() => Current = new(_generation, ++_sequence, null, null, "等待识别角色昵称，请切换地图或重新登录角色。");
     public void Reset(string reason)
     {
         _actors.Clear(); _concerts.Clear(); _playing.Clear(); _scores.Clear(); _parts.Clear(); _personal = null; _personalAwaitingChannel = false; _order = [];
@@ -25,13 +25,13 @@ public sealed class TwGameObserver
     {
         if (identity.ActorId == 0 || identity.CharacterId == 0 || identity.RealmId < 0 || string.IsNullOrWhiteSpace(identity.Nickname) || identity.Nickname.Length > 64)
             throw new InvalidDataException("Invalid identity");
-        if (_actors.Count >= 4096 && !_actors.ContainsKey(identity.ActorId)) Reset("角色缓存已刷新，等待重新识别。");
+        if (_actors.Count >= 4096 && !_actors.ContainsKey(identity.ActorId)) Reset("已清理之前的角色信息，等待重新识别。");
         _actors[identity.ActorId] = identity; Publish();
     }
     public void AcceptPersonalId(ulong id)
     {
         if (id == 0) throw new InvalidDataException("Invalid local character ID");
-        if (_personal is not null) Reset("本机角色初始化已更新，等待重新识别。");
+        if (_personal is not null) Reset("角色信息已更新，等待重新识别。");
         _personal = id; _personalAwaitingChannel = true; Publish();
     }
     public void AcceptConcert(ulong id, ulong host)
@@ -50,7 +50,7 @@ public sealed class TwGameObserver
                 // Captured TW ordering is PersonalData -> EnteringChannel -> PublicData.
                 // Carry only the pending initializer's ID, never old actor/concert state.
                 var initializedId = _personalAwaitingChannel ? _personal : null;
-                Reset("游戏频道正在变化，等待新的角色身份。"); _personal = initializedId; return;
+                Reset("游戏正在切换频道，等待重新识别角色。"); _personal = initializedId; return;
             case 20047: AcceptIdentity(TwGameProtocol.DecodeCharacter(bytes)); return;
             case 20520:
                 // Static BasePersonalReplicatedData first field, not whole PersonalData.
@@ -102,7 +102,7 @@ public sealed class TwGameObserver
                 break;
             case 20238:
                 actor = reader.ULong(); reader.Finish();
-                if (Current.Identity?.ActorId == actor) { Reset("本机角色已离开当前频道，等待新身份。"); return; }
+                if (Current.Identity?.ActorId == actor) { Reset("角色已离开当前频道，等待重新识别。"); return; }
                 _actors.Remove(actor); RemovePlay(actor); break;
             default: return;
         }
@@ -125,11 +125,11 @@ public sealed class TwGameObserver
             whole = timeline.Tracks.Max(t => t.LastEventEndSeconds);
             if (selected.Length > 0 && selected.Distinct().Count() == selected.Length && selected.All(i => i < timeline.Tracks.Count))
                 subset = selected.Max(i => timeline.Tracks[i].LastEventEndSeconds);
-            else issue = "实际演奏声部尚未完整确认。";
+            else issue = "尚未确认本次演奏包含哪些音轨。";
             if (whole > 7 * 24 * 3600 || subset > 7 * 24 * 3600)
-            { whole = subset = null; issue = "谱面时长超出可核对范围。"; }
+            { whole = subset = null; issue = "乐谱过长，暂时无法计算一轮结束时间。"; }
         }
-        issue ??= score.EstimatedStart is null ? "谱面时长已解析，等待有效起点观测。" : "按抓包估计起点计算一轮，时间微调由本机设置。";
+        issue ??= score.EstimatedStart is null ? "乐谱时长已识别，等待识别本轮演奏的开始时间。" : "已根据抓包估算一轮结束时间。可用“本机时间微调”调整。";
         return new(id, local.CharacterId, host, score.Title, score.Loop, Array.AsReadOnly(selected.Distinct().ToArray()), score.Content.Sha256, whole, subset, issue)
             { EstimatedStartLocalMs = score.EstimatedStart };
     }
@@ -145,7 +145,7 @@ public sealed class TwGameObserver
             if (concerts.Length == 1 && _concerts.TryGetValue(concerts[0], out var host) && host == members[0].CharacterId && members.All(m => m.RealmId == local.RealmId) && members.Select(m => m.CharacterId).Distinct().Count() == members.Length)
                 concert = new(concerts[0], host, Array.AsReadOnly(members.Select(m => m.CharacterId).ToArray())) { Members = Array.AsReadOnly(members) };
         }
-        Current = new(_generation, ++_sequence, local, concert, detail ?? (local is null ? "等待本机角色身份；暂不核对加入顺序。" : concert is null ? "已识别本机角色，等待完整合奏成员证据。" : "已核对本机合奏成员顺序。")) { Music = LocalMusic(local) };
+        Current = new(_generation, ++_sequence, local, concert, detail ?? (local is null ? "请先切换地图或重新登录角色，识别昵称后即可核对加入顺序。" : concert is null ? "已识别角色昵称，等待识别合奏成员。" : "已更新合奏加入顺序。")) { Music = LocalMusic(local) };
         Changed?.Invoke(Current);
     }
 }

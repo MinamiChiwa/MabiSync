@@ -14,7 +14,7 @@ public sealed class GameObservationCapture : IAsyncDisposable
     private CancellationTokenSource? _stop;
     private Task? _worker;
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
-    private CaptureObservation _current = Empty("尚未启用游戏观测。");
+    private CaptureObservation _current = Empty("尚未开启抓包识别。");
     private volatile bool _disposed;
     private GameWindowId? _game;
     private CaptureDevice? _device;
@@ -30,7 +30,7 @@ public sealed class GameObservationCapture : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_worker is { IsCompleted: false }) throw new InvalidOperationException("观测正在运行，请先停止再切换通道。");
+            if (_worker is { IsCompleted: false }) throw new InvalidOperationException("正在抓包，请先停止识别再切换通道。");
             _stop?.Dispose(); _stop = new(); var token = _stop.Token;
             Volatile.Write(ref _game,game);Volatile.Write(ref _device,device);
             Publish(Empty("正在核对客户端版本与抓包通道。") with { Running = true });
@@ -39,7 +39,7 @@ public sealed class GameObservationCapture : IAsyncDisposable
                 try { await CaptureChannels.ObserveAsync(game, device, Publish, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { }
                 catch (Exception error) { Publish(Empty(Explain(error))); }
-                finally { if (Current.Running) Publish(Empty("观测已停止；昵称与加入顺序需重新核对。")); }
+                finally { if (Current.Running) Publish(Empty("抓包识别已停止，下次开启时会重新识别昵称和加入顺序。")); }
             }, CancellationToken.None);
         }
         finally { _lifecycle.Release(); }
@@ -47,14 +47,14 @@ public sealed class GameObservationCapture : IAsyncDisposable
     public async Task StopAsync()
     {
         await _lifecycle.WaitAsync().ConfigureAwait(false);
-        try { _stop?.Cancel(); if (_worker is not null) await _worker.ConfigureAwait(false); Publish(Empty("观测已停止；旧身份与顺序已清除。")); }
+        try { _stop?.Cancel(); if (_worker is not null) await _worker.ConfigureAwait(false); Publish(Empty("抓包识别已停止，昵称和加入顺序需要重新识别。")); }
         finally { _lifecycle.Release(); }
     }
     public async ValueTask DisposeAsync()
     { _disposed = true; await StopAsync().ConfigureAwait(false); _stop?.Dispose(); }
     private static string Explain(Exception error) => error is DllNotFoundException or BadImageFormatException or EntryPointNotFoundException
-        ? "Npcap 不可用，仅自动身份与顺序观测受影响。普通同步与手动停止仍可用。"
-        : "观测已停止：" + error.Message;
+        ? "Npcap 不可用，暂时无法自动识别昵称和加入顺序。同步开始和手动停止仍可使用。"
+        : "抓包识别已停止：" + error.Message;
 }
 
 public static partial class CaptureChannels
@@ -99,7 +99,7 @@ public static partial class CaptureChannels
                         if (pcap_stats(channel.Handle, out var stats) == 0)
                         {
                             var drops = unchecked(stats.Dropped + stats.InterfaceDropped);
-                            if (drops != channel.Drops) { channel.Stream.Restart("抓包丢失了数据，旧身份与顺序已清除。"); channel.Drops = drops; }
+                            if (drops != channel.Drops) { channel.Stream.Restart("抓包数据不完整，需要重新识别昵称和加入顺序。"); channel.Drops = drops; }
                         }
                     }
                     lastPoll = now;
@@ -113,12 +113,12 @@ public static partial class CaptureChannels
                         if (result != 1) throw new IOException("Npcap 读取中断，请重新校对通道。");
                         // Windows Npcap timeval uses two int32 fields; caplen follows at +8.
                         var length = Marshal.ReadInt32(header + 8); var wireLength = Marshal.ReadInt32(header + 12);
-                        if (length < 0 || length > 65536 || length > wireLength) { channel.Stream.Restart("捕获长度异常，旧观测已清除。"); continue; }
+                        if (length < 0 || length > 65536 || length > wireLength) { channel.Stream.Restart("抓到的数据长度异常，需要重新识别。"); continue; }
                         var raw = new byte[length]; Marshal.Copy(pointer, raw, 0, length); packets++;
                         var packet = GamePacket.Read(channel.Link, raw);
                         if (packet is null || packet.SourceAddress != channel.Connection.RemoteAddress || packet.SourcePort != channel.Connection.RemotePort || packet.DestinationAddress != channel.Connection.LocalAddress || packet.DestinationPort != channel.Connection.LocalPort) continue;
                         if ((packet.Flags & 2) != 0 && channel.LastSyn != packet.Sequence)
-                        { channel.LastSyn = packet.Sequence; channel.Stream.Restart("游戏连接已更新，等待本机身份。"); }
+                        { channel.LastSyn = packet.Sequence; channel.Stream.Restart("游戏连接已更新，正在重新识别角色昵称。"); }
                         var mono = Stopwatch.GetTimestamp() * (1000d / Stopwatch.Frequency);
                         var capturedUtc = Marshal.ReadInt32(header) * 1000d + Marshal.ReadInt32(header + 4) / 1000d;
                         var age = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - capturedUtc;
@@ -154,9 +154,9 @@ public static partial class CaptureChannels
             if (pcap_compile(handle, out var filter, expression, 1, uint.MaxValue) != 0) throw new IOException("无法建立连接过滤器。");
             try { if (pcap_setfilter(handle, ref filter) != 0) throw new IOException("无法应用连接过滤器。"); }
             finally { pcap_freecode(ref filter); }
-            if (pcap_setnonblock(handle, 1, error) != 0) throw new IOException("Npcap 非阻塞读取不可用。");
+            if (pcap_setnonblock(handle, 1, error) != 0) throw new IOException("Npcap 无法启动抓包，请检查安装或尝试其他网卡。");
             var link = pcap_datalink(handle);
-            if (link is not (0 or 1 or 12 or 101)) throw new IOException("所选网卡的数据链路格式尚未支持。");
+            if (link is not (0 or 1 or 12 or 101)) throw new IOException("暂不支持此网卡，请选择其他网卡重试。");
             var channel = new ReceiveChannel(handle, link, connection, now);
             channel.Stream = new((code, body) =>
             {
@@ -179,7 +179,7 @@ public static partial class CaptureChannels
             var hash = Convert.ToHexString(await SHA256.HashDataAsync(file, token).ConfigureAwait(false));
             var after = new FileInfo(path);
             if (!hash.Equals(expected, StringComparison.OrdinalIgnoreCase) || after.Length != length || after.LastWriteTimeUtc != modified)
-                throw new IOException("当前客户端版本尚未通过协议适配。自动身份与顺序暂不可用；普通同步仍可使用。");
+                throw new IOException("暂不支持此游戏版本的抓包识别，同步开始和手动停止仍可使用。");
         }
     }
     // Reserve Windows WinPcap/Npcap extension fields too; never pass a smaller native buffer.

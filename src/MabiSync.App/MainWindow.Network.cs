@@ -65,7 +65,7 @@ public partial class MainWindow
             if(create)await CreateConfiguredRoom(nickname,operation.Token);
             else await _client.JoinRoomAsync(nickname,code!,operation.Token);
             InvitationBox.Clear();SaveSettings();RenderNetwork(ActiveNetworkState);
-            Feedback(create?"房间已创建，复制邀请给好友。":"已加入服务器房间，请准备本机动作并就绪。");
+            Feedback(create?"房间已创建，复制邀请给好友。":"已加入房间，请确认按键或按钮设置后点击“就绪”。");
         }catch(Exception error){
             if(_client.Session is null){await _client.DisconnectAsync();_client.ForgetDisconnectedRoom();_usingCommunity=false;}
             if(error is OperationCanceledException)throw new IOException("服务器连接已取消或超时，请重试。",error);

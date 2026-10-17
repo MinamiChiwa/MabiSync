@@ -11,7 +11,7 @@ public sealed class SimulationInput(IMonotonicClock clock) : IInputExecutor
     {
         cancellationToken.ThrowIfCancellationRequested();
         var sent = clock.NowMs; Interlocked.Increment(ref _count);
-        return new("executed", sent, true, "Simulation only; no game input");
+        return new("executed", sent, true, "模拟已完成，实际游戏操作需开启“操作游戏”。");
     }
     public void ReleaseAll() { }
 }

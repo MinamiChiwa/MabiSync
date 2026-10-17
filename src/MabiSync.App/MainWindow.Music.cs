@@ -18,16 +18,16 @@ public partial class MainWindow
     }
     private async void ReportLeaderClick(object sender, RoutedEventArgs e) => await Run((Button)sender, async () =>
     {
-        if (ViewRoom?.GetProperty("performance") is not { ValueKind: JsonValueKind.Object } p) throw new InvalidOperationException("当前没有演奏场次。");
+        if (ViewRoom?.GetProperty("performance") is not { ValueKind: JsonValueKind.Object } p) throw new InvalidOperationException("当前没有正在进行的演奏。");
         await _client.SendAsync(new { type = "leader-status", sessionId = p.GetProperty("id").GetString(), status = "interrupted", evidenceSource = "player-report" });
         MessageText.Text = "已通知房主选择全员停止或继续。";
     });
     private void RefreshMusicStatus(JsonElement? performance)
     {
         LeaderPurposeText.Text=SelectedStopRule switch {
-            MusicStopRule.FirstCycle=>"以此人的乐谱确定全员一轮停止时间；总指挥中断时提示房主。各组由各自的乐谱使用者开始。",
-            MusicStopRule.Duration=>"显示此人的乐谱，作为中断报告对象；全员按指定时长停止。",
-            _=>"显示此人的乐谱，作为中断报告对象；全员停止由房主决定。"
+            MusicStopRule.FirstCycle=>"按总指挥的乐谱估算一轮结束时间，全员届时停止。总指挥提前结束时会提醒房主。各组仍由自己的乐谱使用者开始。",
+            MusicStopRule.Duration=>"显示总指挥的乐谱；总指挥提前结束时可通知房主。全员按指定时长停止。",
+            _=>"显示总指挥的乐谱；总指挥提前结束时可通知房主。何时全员停止由房主决定。"
         };
         var music = SelectedMode != "emote";
         MusicStatusText.Visibility = music && performance is {ValueKind:JsonValueKind.Object} ? Visibility.Visible : Visibility.Collapsed;
@@ -39,7 +39,7 @@ public partial class MainWindow
         if (performance is not { ValueKind: JsonValueKind.Object } value || value.GetProperty("mode").GetString() == "emote")
         { MusicStatusText.Text = host ? SelectedStopRule switch {
             MusicStopRule.Duration => _musicDurationError ?? $"结束方式：演奏 {_musicDurationMs / 1000m:0.###} 秒后全员停止。",
-            MusicStopRule.FirstCycle => "结束方式：总指挥一轮后全员停止。总指挥需启用抓包识别；停止点按起点估计与全谱时长安排。",
+            MusicStopRule.FirstCycle => "总指挥需开启抓包识别。工具根据乐谱和开始时间估算一轮结束时间，届时全员停止。",
             _ => "结束方式：房主手动全员停止。" } : "总指挥与结束方式由房主设置。"; return; }
         if (!active && SelectedStopRule == MusicStopRule.Duration && _musicDurationError is not null) { MusicStatusText.Text = _musicDurationError; return; }
         var phase = value.GetProperty("phase").GetString();
@@ -55,30 +55,30 @@ public partial class MainWindow
         var hasStop = value.TryGetProperty("stopAction", out var stop) && stop.ValueKind == JsonValueKind.Object;
         var automatic = value.TryGetProperty("stopRule",out var rule) && rule.GetString()=="first-cycle";
         var committed = !value.TryGetProperty("stopCommitted",out var sc) || sc.GetBoolean();
-        ContinueButton.Content = hasStop && committed ? "继续到原定停止点" : "继续演奏，稍后手动停止";
+        ContinueButton.Content = hasStop && committed ? "继续，按原计划停止" : "继续，稍后手动停止";
         var ending = hasStop
-            ? !committed ? "正在等待全员确认停止动作" : $"本机计划停止还剩 {Math.Max(0, (_scheduler.LocalDeadline(stop.GetProperty("id").GetString()!) is { } deadline ? deadline - _clock.NowMs : stop.GetProperty("targetServerMs").GetDouble() + TimingOffsetMs - (now ?? 0)) / 1000):0.0} 秒（{(automatic?"总指挥一轮 · 抓包估计":"手动时长")}）"
+            ? !committed ? "正在确认各成员能否停止演奏" : $"距离本机停止还有 {Math.Max(0, (_scheduler.LocalDeadline(stop.GetProperty("id").GetString()!) is { } deadline ? deadline - _clock.NowMs : stop.GetProperty("targetServerMs").GetDouble() + TimingOffsetMs - (now ?? 0)) / 1000):0.0} 秒（{(automatic?"总指挥一轮 · 抓包估计":"指定时长")}）"
             : automatic ? CycleWaitingText(value) : "由房主手动全员停止";
         var detail = value.GetProperty("interruption");
         var interruption = detail.ValueKind == JsonValueKind.Object ? InterruptionText(detail) : "";
         var failures = value.GetProperty("receipts").EnumerateArray().Count(r => r.GetProperty("status").GetString() is "failed" or "missed");
-        var warning = failures > 0 ? $"有 {failures} 条输入失败或错过，请展开回执并核对游戏。" : "";
+        var warning = failures > 0 ? $"有 {failures} 次操作未执行成功，请查看“执行记录与诊断”并检查游戏。" : "";
         MusicStatusText.Text = phase switch
         {
             "interrupted" => $"总指挥：{leader} · {interruption}。{ending}。由房主决定全停或继续。",
             "cancelled" => $"本轮已取消：{interruption}。下一轮请重新准备并就绪。",
-            "stopped" => warning + "本轮停止计划已结束，请核对游戏是否已停止；下一轮需重新准备并就绪。",
+            "stopped" => warning + "本轮已结束，请确认游戏中已停止演奏。下一轮请重新就绪。",
             _ => $"总指挥：{leader} · {ending}。"
         };
     }
     private static string CycleWaitingText(JsonElement performance) => performance.TryGetProperty("cycleStopStatus",out var status) ? status.GetString() switch
     {
-        "too-late" => "收到谱面时已接近首轮终点，请由房主手动停止",
-        "participant-not-ready" => "有成员的停止动作未准备好，请由房主手动停止",
-        "prepare-timeout" => "停止动作未及时完成确认，请由房主手动停止",
-        "interrupted-before-stop-commit" => "停止计划尚未提交，请由房主决定继续或全停",
-        _ => "等待总指挥的新乐谱与起点；当前可由房主手动停止"
-    } : "等待总指挥的乐谱与起点";
+        "too-late" => "识别乐谱时已接近一轮结束，来不及安排自动停止，请房主手动全员停止",
+        "participant-not-ready" => "有成员尚未设置好停止操作，请房主手动全员停止",
+        "prepare-timeout" => "未能及时确认所有成员的停止设置，请房主手动全员停止",
+        "interrupted-before-stop-commit" => "尚未安排统一停止，请房主选择继续或全员停止",
+        _ => "等待识别总指挥本轮的乐谱和开始时间；房主可随时全员停止"
+    } : "等待识别总指挥的乐谱和开始时间";
     private void RefreshScoreObservation(bool visible, JsonElement? performance)
     {
         ScoreCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -97,9 +97,9 @@ public partial class MainWindow
                     var title = score.GetProperty("title").GetString();
                     var whole = score.GetProperty("wholeScoreDurationSeconds"); var selected = score.GetProperty("selectedDurationSeconds");
                     ScoreObservationText.Text = $"总指挥乐谱：{(string.IsNullOrWhiteSpace(title) ? "未命名乐谱" : title)} · " +
-                        (whole.ValueKind == JsonValueKind.Number ? $"全谱 {whole.GetDouble():0.###} 秒" : "时长待解析") +
-                        (selected.ValueKind == JsonValueKind.Number ? $" · 实际声部 {selected.GetDouble():0.###} 秒" : "");
-                    ScoreObservationText.ToolTip=score.GetProperty("issue").GetString() ?? "游戏起点与循环终点待核对。";
+                        (whole.ValueKind == JsonValueKind.Number ? $"完整乐谱 {whole.GetDouble():0.###} 秒" : "时长待解析") +
+                        (selected.ValueKind == JsonValueKind.Number ? $" · 当前音轨 {selected.GetDouble():0.###} 秒" : "");
+                    ScoreObservationText.ToolTip=score.GetProperty("issue").GetString() ?? "乐谱时长已识别，游戏中的开始与循环时间仍需核对。";
                     return;
                 }
                 ScoreObservationText.Text = "乐谱：等待识别";
@@ -108,7 +108,7 @@ public partial class MainWindow
         }
         var local = _gameObservation.Current.Game.Music;
         ScoreObservationText.Text = local is null ? "乐谱：等待识别" :
-            $"本机乐谱：{local.Title} · " + (local.WholeScoreDurationSeconds is { } seconds ? $"全谱 {seconds:0.###} 秒" : "时长待解析");
+            $"本机乐谱：{local.Title} · " + (local.WholeScoreDurationSeconds is { } seconds ? $"完整乐谱 {seconds:0.###} 秒" : "时长待解析");
         if(local is not null)ScoreObservationText.ToolTip=local.Issue;
     }
     private string InterruptionText(JsonElement detail)
@@ -118,10 +118,10 @@ public partial class MainWindow
         var reason = detail.TryGetProperty("source", out var s) ? s.GetString() switch
         {
             "tool-connection" or "tool-session-replaced" => "工具连接中断，请确认游戏状态。",
-            "participant-not-ready" => "本机动作准备失败", "input-failure" => "输入失败或错过", "not-ready" => "取消就绪", "local-stop" => "执行本机停止",
-            "prepare-timeout" or "prepare-too-late" => "未及时完成动作准备", "host-cancel" => "房主取消",
-            "member-left" => "离开房间", "game-observation" => "报告演奏中断", _ => "任务取消或发生中断"
-        } : "任务取消或发生中断";
+            "participant-not-ready" => "按键或按钮尚未设置好", "input-failure" => "操作失败或未能按时执行", "not-ready" => "取消就绪", "local-stop" => "执行本机停止",
+            "prepare-timeout" or "prepare-too-late" => "未能及时准备好", "host-cancel" => "房主取消",
+            "member-left" => "离开房间", "game-observation" => "报告演奏中断", _ => "本轮已取消或中断"
+        } : "本轮已取消或中断";
         return name + "：" + reason + (detail.TryGetProperty("detail", out var error) && error.ValueKind == JsonValueKind.String ? " · " + Friendly(error.GetString() ?? "") : "");
     }
     private void ConsumeEndedMusicReadiness(JsonElement room, string memberId)

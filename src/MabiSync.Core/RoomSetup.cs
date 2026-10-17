@@ -33,7 +33,7 @@ public sealed record RoomInvitation(Uri Endpoint, string Code)
             !Uri.TryCreate(parts[1], UriKind.Absolute, out var uri) || uri.Scheme is not ("ws" or "wss") ||
             string.IsNullOrEmpty(uri.Host) || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
             parts[2].Length != 6 || !parts[2].All(char.IsAsciiLetterOrDigit))
-            throw new FormatException("请粘贴完整的 MabiSync 邀请；单独的地址和房间码可在高级连接中填写。");
+            throw new FormatException("邀请不完整，请复制房主分享的整条邀请。只有房间码时，请先选择与房主相同的联机方式。");
         return new(uri, parts[2].ToUpperInvariant());
     }
 }

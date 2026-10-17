@@ -8,7 +8,7 @@ public static class WindowActivation
         token.ThrowIfCancellationRequested();
         var state=inspect(window)??throw new InvalidOperationException("游戏窗口已失效，请重新选择。");
         if(state.Identity!=window)throw new InvalidOperationException("游戏进程已更换，请重新选择窗口。");
-        if(!state.InputPermission)throw new InvalidOperationException("工具与游戏输入权限不匹配，请使用相同权限运行。");
+        if(!state.InputPermission)throw new InvalidOperationException("工具与游戏的运行权限不同，请让两者都以普通权限或管理员权限运行。");
         if(state.Foreground && state.Visible)return;
         if(!state.Visible)restore(window);
         foreground(window);

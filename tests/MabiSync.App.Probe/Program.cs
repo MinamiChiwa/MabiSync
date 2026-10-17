@@ -184,6 +184,12 @@ internal static class Program
             box.SelectedItem=box.Items.Cast<object>().Single(item=>(GameWindowState)item.GetType().GetProperty("State")!.GetValue(item)! == state);
             Call(window,"RefreshWindowsClick",box,new RoutedEventArgs());
             Check(box.SelectedItem?.GetType().GetProperty("Label")!.GetValue(box.SelectedItem)?.ToString()?.Contains("MabiSync minimized fixture")==true,"Refresh lost minimized selection or its title");
+            ((CheckBox)window.FindName("EnableGameInput")).IsChecked=true;
+            ((ComboBox)window.FindName("ModeBox")).SelectedIndex=0;
+            Call(window,"ValidateLocalReadiness");
+            Check(!((TextBlock)window.FindName("InputStateText")).Text.StartsWith("F9："),"UI advertises F9 when no hotkey is registered");
+            ((CheckBox)window.FindName("EnableGameInput")).IsChecked=false;
+            Console.WriteLine("PASS WPF missing global hotkey does not block real input readiness; desktop inputs: 0");
             var observer=Field<object>(window,"_gameObservation");var observationType=observer.GetType();
             observationType.GetField("_game",Private)!.SetValue(observer,target);
             var deviceType=platformType.Assembly.GetType("MabiSync.Windows.CaptureDevice")!;
@@ -363,8 +369,9 @@ internal static class Program
             Check(!(bool)host.GetType().GetProperty("CanEdit")!.GetValue(host)!,"Guest can edit roster");
             Check(!roleEditor.IsEnabled,"Guest still has an interactive role dropdown");
             var pickerType=_windowType.Assembly.GetType("MabiSync.App.ButtonPickerWindow")!;
-            var picker=(Window)Activator.CreateInstance(pickerType,Private,null,[Field<object>(window,"_gamePlatform"),new GameWindowId(1,2,3,"fixture.exe"),new ClientArea(-1920,0,1280,960,144)],null)!;
+            var picker=(Window)Activator.CreateInstance(pickerType,Private,null,[Field<object>(window,"_gamePlatform"),new GameWindowId(1,2,3,"fixture.exe"),new ClientArea(-1920,0,1280,960,144),"Ctrl+Alt+F9"],null)!;
             try {
+                Check(Children<TextBlock>((DependencyObject)picker.Content).Any(text=>text.Text.Contains("Ctrl+Alt+F9")),"Picker does not display the fallback cancel shortcut");
                 Check(picker.Topmost && !picker.ShowActivated && !picker.ShowInTaskbar,"Picker steals initial focus or lacks topmost hit surface");
                 using var cancelled=new CancellationTokenSource();cancelled.Cancel();
                 try{await (Task)pickerType.GetMethod("PickAsync",Private)!.Invoke(picker,[cancelled.Token])!;throw new InvalidOperationException("Cancelled picker displayed");}

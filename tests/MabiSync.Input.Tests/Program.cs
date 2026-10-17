@@ -6,6 +6,25 @@ void Check(bool ok, string why) { if (!ok) throw new InvalidOperationException(w
 ScheduledAction Action(string kind = "start", string mode = "emote", string id = "a") => new(id, "session", kind, 1000, "epoch") { Mode = mode };
 void Add(string name, Action test) => tests.Add((name, test));
 
+Add("Occupied F9 uses an available stop chord and all occupied chords degrade without blocking", () =>
+{
+    var owned=new List<int>();var modifiers=new uint[]{0,3,6};
+    try {
+        if(HotkeyFixture.RegisterHotKey(0,0x6810,0x4000,0x78))owned.Add(0x6810);
+        using var signaled=new ManualResetEventSlim();
+        using(var fallback=new LocalStopHotkey(()=>signaled.Set())) {
+            Check(fallback.Registered,"Occupied F9 prevents registering a fallback");
+            var shortcut=typeof(LocalStopHotkey).GetProperty("Shortcut")?.GetValue(fallback) as string;
+            Check(shortcut is "Ctrl+Alt+F9" or "Ctrl+Shift+F9","Fallback shortcut is missing or is still F9");
+            var threadId=(uint)typeof(LocalStopHotkey).GetField("_threadId",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(fallback)!;
+            Check(HotkeyFixture.PostThreadMessage(threadId,0x0312,(nuint)LocalStopHotkey.Id,0) && signaled.Wait(1000),"Fallback registration does not dispatch the local stop callback");
+        }
+        for(var i=1;i<modifiers.Length;i++)if(HotkeyFixture.RegisterHotKey(0,0x6810+i,0x4000|modifiers[i],0x78))owned.Add(0x6810+i);
+        using var unavailable=new LocalStopHotkey(()=>{});
+        Check(!unavailable.Registered && typeof(LocalStopHotkey).GetProperty("Shortcut")?.GetValue(unavailable) is null,"Unavailable hotkey reports an active stop shortcut");
+    }finally{foreach(var id in owned)HotkeyFixture.UnregisterHotKey(0,id);}
+});
+
 Add("Point picker uses physical client coordinates across mixed DPI and negative monitors", () =>
 {
     var type=typeof(ButtonBinding).Assembly.GetType("MabiSync.Core.CalibrationGeometry");
@@ -313,4 +332,17 @@ sealed class TestPlatform : IGameInputPlatform
     public void Key(ushort key, bool down) { if ((down && key == FailKey) || (!down && FailRelease)) throw new IOException("Input refused"); Events.Add($"key:{key}:{(down ? "down" : "up")}"); if (down) AfterKeyDown?.Invoke(key); }
     public void MovePointer(int x, int y) => Events.Add($"move:{x}:{y}");
     public void LeftButton(bool down) => Events.Add("mouse:" + (down ? "down" : "up"));
+}
+
+static class HotkeyFixture
+{
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return:System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool RegisterHotKey(nint window,int id,uint modifiers,uint key);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return:System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool UnregisterHotKey(nint window,int id);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return:System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool PostThreadMessage(uint threadId,uint message,nuint wparam,nint lparam);
 }

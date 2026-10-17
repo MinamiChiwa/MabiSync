@@ -44,12 +44,12 @@ public partial class MainWindow
         if (p is { ValueKind: JsonValueKind.Object } round && round.GetProperty("phase").GetString() is not ("cancelled" or "stopped"))
         {
             if (!round.GetProperty("participantIds").EnumerateArray().Any(id => id.GetString() == self?.Id))
-            { NextStepText.Text = IsRoomHost ? "本轮由选中的成员执行，你可以取消或统一停止。" : "你正在旁观本轮。"; return; }
+            { NextStepText.Text = IsRoomHost ? "选中的成员正在参与本轮。你可以取消本轮或全员停止。" : "你正在旁观本轮。"; return; }
             NextStepText.Text = round.GetProperty("phase").GetString() == "interrupted"
                 ? IsRoomHost ? "请选择全员停止，或继续演奏。" : "等待房主决定停止或继续。"
                 : IsManualEnsembleJoiner ? self?.JoinState == "correct" ? "加入顺序正确，可继续在游戏中演奏。"
                     : self?.JoinState == "wrong" ? "加入顺序与安排不符，请与本组乐谱使用者确认。" : "靠近本组乐谱使用者，按成员列表中的顺序加入。"
-                : _inputRouter.UseSimulation ? "本轮运行模拟，可在执行记录中查看结果。" : "开始前自动激活所选游戏窗口，请保持游戏在前台。";
+                : _inputRouter.UseSimulation ? "正在模拟本轮操作，可在“执行记录与诊断”中查看结果。" : "开始前自动激活所选游戏窗口，请保持游戏在前台。";
             return;
         }
         if (!_inputRouter.UseSimulation)
@@ -58,7 +58,7 @@ public partial class MainWindow
             if (_bindingError is not null) { NextStepText.Text = _bindingError; return; }
             var binding = _modeBindings[SelectedMode];
             if (SelectedMode != "emote" && binding.Stop is null) { NextStepText.Text = "请记录画面上的停止按钮，或设置停止快捷键。"; return; }
-            if (!IsManualEnsembleJoiner && binding.Start is null) { NextStepText.Text = "请设置本机动作的快捷键或按钮。"; return; }
+            if (!IsManualEnsembleJoiner && binding.Start is null) { NextStepText.Text = "请先设置开始按键，或点选游戏中的开始按钮。"; return; }
         }
 
         if (IsRoomHost)

@@ -103,14 +103,14 @@ public partial class CaptureChannelWindow : Window
     private void ShowObservation(CaptureObservation state)
     {
         CaptureStateText.Text = state.Status;
-        CountText.Text = $"持续观测数据包：{state.Packets}";
-        IdentityText.Text = state.Game.Identity is { } identity ? $"已识别本机：{identity.Nickname}" + (state.Game.Concert is { } concert ? $" · 已核对 {concert.OrderedCharacterIds.Count} 名合奏成员" : " · 等待合奏成员事件")
-            : "等待角色身份。启用识别后，请切换地图或重新登录角色。";
+        CountText.Text = $"已接收的数据包：{state.Packets}";
+        IdentityText.Text = state.Game.Identity is { } identity ? $"已识别本机：{identity.Nickname}" + (state.Game.Concert is { } concert ? $" · 已核对 {concert.OrderedCharacterIds.Count} 名合奏成员" : " · 等待识别合奏成员")
+            : "等待识别角色昵称。开启识别后，请切换地图或重新登录角色。";
         var score = state.Game.Music;
         ScoreText.Visibility = score is null ? Visibility.Collapsed : Visibility.Visible;
         ScoreText.Text = score is null ? "" : $"乐谱：{score.Title} · " +
-            (score.WholeScoreDurationSeconds is { } duration ? $"全谱 {duration:0.###} 秒" : "时长待解析") +
-            (score.SelectedDurationSeconds is { } selected ? $" · 实际声部 {selected:0.###} 秒" : "") + "\n" + score.Issue;
+            (score.WholeScoreDurationSeconds is { } duration ? $"完整乐谱 {duration:0.###} 秒" : "时长待解析") +
+            (score.SelectedDurationSeconds is { } selected ? $" · 当前音轨 {selected:0.###} 秒" : "") + "\n" + score.Issue;
         SetRunning(_check is { IsCompleted: false });
     }
     private async void ObserveClick(object sender, RoutedEventArgs e)

@@ -100,7 +100,7 @@ export function expireObservations(room, now) {
   return changed;
 }
 export function ensembleFeedback(room, layout, now) {
-  const result = new Map([...room.members.keys()].map(key => [key,{state:'unconfirmed',text:'等待游戏事件核对'}]));
+  const result = new Map([...room.members.keys()].map(key => [key,{state:'unconfirmed',text:'等待识别加入顺序'}]));
   const p = room.performance;
   const active = p && !['cancelled','stopped'].includes(p.phase);
   if (active && p.mode !== 'ensemble') return result;

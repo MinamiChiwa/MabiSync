@@ -50,7 +50,7 @@ public sealed class ActionScheduler : IDisposable
     {
         if (string.IsNullOrWhiteSpace(epoch)) throw new ArgumentException("Missing service epoch", nameof(epoch));
         lock (_gate) { if (_epoch == epoch) return; _epoch = epoch; }
-        CancelWhere(_ => true, "Service restarted or endpoint changed", releaseAll: true);
+        CancelWhere(_ => true, "服务器已重启或连接地址已改变，本轮操作已取消。", releaseAll: true);
         lock (_gate) { _completed.Clear(); _history.Clear(); _stopRequests.Clear(); _sessionOffsets.Clear(); }
         _room.Reset();
     }
@@ -62,16 +62,16 @@ public sealed class ActionScheduler : IDisposable
     public InputPreparation Prepare(ScheduledAction action)
     {
         var estimate = _room.Estimate;
-        if (estimate is null) return new(false, "Clock synchronization is not ready");
+        if (estimate is null) return new(false, "正在同步时钟，请稍后再开始。");
         double deadline; int lead;
         long version;
         lock (_gate)
         {
-            if (_disposed || !Valid(action) || action.ServerEpoch != _epoch) return new(false, "Invalid action or old service epoch");
-            if (_completed.Contains(action.Id) || _pending.ContainsKey(action.Id) || _preparing.Contains(action.Id)) return new(false, "Action already handled");
+            if (_disposed || !Valid(action) || action.ServerEpoch != _epoch) return new(false, "本轮操作已失效，请重新连接房间后再开始。");
+            if (_completed.Contains(action.Id) || _pending.ContainsKey(action.Id) || _preparing.Contains(action.Id)) return new(false, "本次操作已安排或执行过。");
             lead = _sessionOffsets.GetValueOrDefault(action.SessionId, _timingOffsetMs);
             deadline = action.TargetServerMs - estimate.OffsetMs + lead;
-            if (action.Kind == "start" && deadline < _local.NowMs - 100) return new(false, "Start target already passed");
+            if (action.Kind == "start" && deadline < _local.NowMs - 100) return new(false, "已错过开始时间，请房主重新开始本轮。");
             version = _cancellationVersion; _preparing.Add(action.Id);
         }
         InputPreparation preparation;
@@ -88,7 +88,7 @@ public sealed class ActionScheduler : IDisposable
             }
         }
         if (!accepted) _input.Forget(action.Id);
-        return accepted ? new(true, null) : preparation.Ready ? new(false, "Action became stale") : preparation;
+        return accepted ? new(true, null) : preparation.Ready ? new(false, "本轮设置已改变，请重新就绪后再开始。") : preparation;
     }
     private void FreezeOffset(string sessionId,int offset)
     {
@@ -116,7 +116,7 @@ public sealed class ActionScheduler : IDisposable
         long version;
         lock (_gate)
         {
-            if (_disposed || !Valid(check) || epoch != _epoch) return new(false, "Invalid music session or old service epoch");
+            if (_disposed || !Valid(check) || epoch != _epoch) return new(false, "本轮演奏已失效，请重新连接房间后再开始。");
             version = _cancellationVersion;
         }
         try
@@ -124,19 +124,19 @@ public sealed class ActionScheduler : IDisposable
             var result = _input.Prepare(check);
             lock (_gate)
             {
-                if (_disposed || epoch != _epoch || version != _cancellationVersion) return new(false,"Session became stale");
+                if (_disposed || epoch != _epoch || version != _cancellationVersion) return new(false,"本轮演奏状态已改变，请重新就绪后再开始。");
                 if (result.Ready) FreezeOffset(sessionId,_timingOffsetMs);
                 return result;
             }
         }
         finally { _input.Forget(check.Id); }
     }
-    public void CancelAction(string actionId) => CancelWhere(e => e.Action.Id == actionId, "Action cancelled");
-    public void TransportDisconnected() => CancelWhere(e => e.Action.Kind == "start" || !e.Committed, "Tool disconnected; pending start cancelled");
+    public void CancelAction(string actionId) => CancelWhere(e => e.Action.Id == actionId, "本次操作已取消。");
+    public void TransportDisconnected() => CancelWhere(e => e.Action.Kind == "start" || !e.Committed, "房间连接已断开，尚未执行的开始操作已取消。");
     /// <summary>Leaving a room removes its future inputs; a stop sent as part of closure may finish releasing normally.</summary>
-    public void RoomExited()=>CancelWhere(e=>!e.Immediate,"Room exited; future actions cancelled");
-    public void CancelAll() => CancelWhere(_ => true, "Local cancellation", releaseAll: true);
-    public void CancelPendingStarts() => CancelWhere(e => e.Action.Kind == "start" || !e.Committed, "Local input configuration or readiness changed");
+    public void RoomExited()=>CancelWhere(e=>!e.Immediate,"已退出房间，尚未执行的操作已取消。");
+    public void CancelAll() => CancelWhere(_ => true, "已在本机取消操作。", releaseAll: true);
+    public void CancelPendingStarts() => CancelWhere(e => e.Action.Kind == "start" || !e.Committed, "本机设置或就绪状态已改变，尚未执行的操作已取消。");
     public bool StopNow(string id, string sessionId, string epoch, string mode, bool localOnly = false)
     {
         var action = new ScheduledAction(id, sessionId, "stop", 0, epoch) { Mode = mode, LocalOnly = localOnly };
@@ -145,7 +145,7 @@ public sealed class ActionScheduler : IDisposable
             if (_disposed || !Valid(action) || epoch != _epoch || _completed.Contains(id) || _pending.ContainsKey(id) || !_stopRequests.Add(id)) return false;
         }
         // Reserve first: a duplicate or stale stop must not cancel a valid task.
-        CancelWhere(e => e.Action.SessionId == sessionId, "Replaced by immediate stop", releaseAll: true);
+        CancelWhere(e => e.Action.SessionId == sessionId, "已取消原定操作，改为立即停止。", releaseAll: true);
         var preparation = _input.Prepare(action);
         if (!preparation.Ready)
         {
@@ -210,11 +210,11 @@ public sealed class ActionScheduler : IDisposable
                 InputOutcome outcome;
                 try
                 {
-                    if (next.Cancellation.IsCancellationRequested) outcome = new("cancelled", null, next.Simulated, "Cancelled before dispatch");
-                    else if (next.Action.Kind == "start" && _local.NowMs - next.Deadline > 100) outcome = new("missed", null, next.Simulated, "Start missed its deadline");
+                    if (next.Cancellation.IsCancellationRequested) outcome = new("cancelled", null, next.Simulated, "执行前已取消。");
+                    else if (next.Action.Kind == "start" && _local.NowMs - next.Deadline > 100) outcome = new("missed", null, next.Simulated, "未能按时开始，本次操作已跳过。请房主重新开始本轮。");
                     else outcome = _input.Execute(next.Action, next.Cancellation.Token);
                 }
-                catch (OperationCanceledException) { outcome = new("cancelled", null, next.Simulated, "Input cancelled"); }
+                catch (OperationCanceledException) { outcome = new("cancelled", null, next.Simulated, "本次操作已取消。"); }
                 catch (Exception error) { outcome = new("failed", null, next.Simulated, error.Message); }
                 lock (_gate) { _pending.Remove(next.Action.Id); Remember(next.Action.Id); }
                 Publish(next, outcome); _input.Forget(next.Action.Id); next.Cancellation.Dispose();
@@ -235,7 +235,7 @@ public sealed class ActionScheduler : IDisposable
     public void Dispose()
     {
         lock (_gate) { if (_disposed) return; _disposed = true; }
-        CancelWhere(_ => true, "Scheduler closed", releaseAll: true);
+        CancelWhere(_ => true, "工具已关闭，尚未执行的操作已取消。", releaseAll: true);
         if (Thread.CurrentThread != _thread) _thread.Join(2000);
     }
 }

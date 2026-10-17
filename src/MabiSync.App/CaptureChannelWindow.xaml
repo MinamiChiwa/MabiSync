@@ -5,7 +5,7 @@
     <TextBlock Text="选择游戏与网络通道，启用昵称和合奏加入顺序识别。" TextWrapping="Wrap" Margin="0,8,0,12" />
     <DockPanel><TextBlock Text="游戏窗口" /><CheckBox x:Name="ShowOtherWindows" Content="显示其他窗口" Checked="RefreshClick" Unchecked="RefreshClick" Margin="15,0,0,0" /></DockPanel><ComboBox x:Name="GamesBox" DisplayMemberPath="Label" SelectionChanged="GameChanged" />
     <TextBlock Text="网卡 / 加速器通道" /><ComboBox x:Name="DevicesBox" DisplayMemberPath="Label" SelectionChanged="DeviceChanged" />
-    <TextBlock Text="该游戏的 IPv4 TCP 连接" /><ComboBox x:Name="ConnectionsBox" DisplayMemberPath="Label" />
+    <TextBlock Text="游戏连接（IPv4 TCP）" /><ComboBox x:Name="ConnectionsBox" DisplayMemberPath="Label" />
     <WrapPanel><Button x:Name="ObserveButton" Content="开始" Click="ObserveClick" Style="{StaticResource PrimaryAction}" /><Button x:Name="StopObserveButton" Content="停止识别" Click="StopObserveClick" IsEnabled="False" /></WrapPanel>
     <Expander Header="检查通道流量"><WrapPanel><Button x:Name="RefreshButton" Content="刷新通道" Click="RefreshClick" /><Button x:Name="CheckButton" Content="检查 30 秒" Click="CheckClick" /><Button x:Name="CancelButton" Content="停止检查" Click="StopClick" IsEnabled="False" /></WrapPanel></Expander>
     <Border Background="#1A2331" Padding="14" CornerRadius="8" Margin="0,8,0,0"><StackPanel>

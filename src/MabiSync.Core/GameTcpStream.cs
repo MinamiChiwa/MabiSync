@@ -25,7 +25,7 @@ public sealed class GameTcpStream(Action<int, byte[]> onFrame, Action<string> in
         if (delta > 0)
         {
             if (_pending.Count >= 128 || _pending.Sum(p => p.Bytes.Length) + payload.Length > 1024 * 1024)
-            { Restart("重组缓冲已刷新，等待重新识别。"); return; }
+            { Restart("已清理积压的游戏数据，等待重新识别。"); return; }
             var duplicate = false;
             foreach (var row in _pending) if (row.Seq == sequence && payload.SequenceEqual(row.Bytes)) { duplicate = true; break; }
             if (!duplicate) _pending.Add((sequence, payload.ToArray(), receivedLocalMs ?? nowMs));
@@ -46,7 +46,7 @@ public sealed class GameTcpStream(Action<int, byte[]> onFrame, Action<string> in
     {
         if (_gapSince is not { } since || nowMs - since < 1500 || _pending.Count == 0) return;
         var first = _pending.MinBy(p => unchecked((int)(p.Seq - _next)));
-        Restart("捕获流有缺口，旧身份与顺序已清除。");
+        Restart("部分游戏数据未能抓到，需要重新识别昵称和加入顺序。");
         Feed(first.Seq, first.Bytes, nowMs, first.Time);
     }
     private void Append(uint sequence, ReadOnlySpan<byte> payload, double time)
@@ -58,7 +58,7 @@ public sealed class GameTcpStream(Action<int, byte[]> onFrame, Action<string> in
         {
             var offset = (long)_history.Count + delta + i;
             if (offset >= 0 && offset < _history.Count && _history[(int)offset] != payload[i])
-            { Restart("TCP 重传内容不一致，旧观测已清除。"); return; }
+            { Restart("重复收到的游戏数据不一致，需要重新识别。"); return; }
         }
         var bytes = payload[skip..].ToArray();
         _next = unchecked(_next + (uint)bytes.Length);
@@ -90,7 +90,7 @@ public sealed class GameTcpStream(Action<int, byte[]> onFrame, Action<string> in
                 _framed = true;
             }
             else if (header is null)
-            { _framed = false; invalidate("游戏帧失去连续性，旧观测已清除。"); at++; continue; }
+            { _framed = false; invalidate("游戏数据不连续，需要重新识别。"); at++; continue; }
             var frame = header!.Value;
             if (data.Length - at - 9 < frame.Length) break;
             var body = data.AsSpan(at + 9, frame.Length);
@@ -107,7 +107,7 @@ public sealed class GameTcpStream(Action<int, byte[]> onFrame, Action<string> in
                 FrameReceivedLocalMs = received is { } stamp && double.IsFinite(stamp) ? stamp : null;
                 try { onFrame(frame.Code, TwGameProtocol.Expand(body, frame.Flag)); }
                 catch (Exception error) when (error is InvalidDataException or System.Text.DecoderFallbackException)
-                { invalidate("当前协议数据未通过校验，旧观测已清除。"); }
+                { invalidate("无法解析本次游戏数据，需要重新识别。"); }
             }
             at += 9 + frame.Length;
         }

@@ -14,7 +14,7 @@ public static class ShortcutText
     public static KeyBinding FromVirtualKey(ushort key, bool control = false, bool alt = false, bool shift = false)
     {
         if (key == 0x78 || !(key is >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A or >= 0x60 and <= 0x69 or >= 0x70 and <= 0x87 || Names.ContainsKey(key)))
-            throw new FormatException("此按键不可用；F9保留为本机停止键，请换一个按键。");
+            throw new FormatException("此按键不可用。F9 及其组合键用于本机停止，请换一个按键。");
         return new(key, control, alt, shift);
     }
     public static KeyBinding? Parse(string text)

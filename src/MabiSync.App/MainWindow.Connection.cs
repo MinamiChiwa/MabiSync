@@ -137,7 +137,7 @@ public partial class MainWindow
         await _client.ConnectAsync(invitation.Endpoint.AbsoluteUri);
         await _client.JoinRoomAsync(nickname,invitation.Code);
         InvitationBox.Clear();
-        SaveSettings(); Feedback("已加入房间，请准备本机动作并点击底部“就绪”。");
+        SaveSettings(); Feedback("已加入房间，请确认按键或按钮设置后点击底部“就绪”。");
     });
     private async void ReconnectRoomClick(object sender,RoutedEventArgs e)=>await RunConnection((Button)sender,ReconnectRoom);
     private async Task ReconnectRoom()
@@ -172,12 +172,12 @@ public partial class MainWindow
             if(!_client.Connected)_client.ForgetDisconnectedRoom();
             _usingLan=false;_lanEndpoint=null;_usingCommunity=false;RenderNetwork(ActiveNetworkState);
         }
-        if(cleanupFailed)Feedback("本机退出已处理，部分连接清理未完成，请关闭工具后重新打开。",FeedbackTone.Warning);
+        if(cleanupFailed)Feedback("你已退出房间，部分连接未能关闭，请重启工具。",FeedbackTone.Warning);
         else if(host && confirmed && unconfirmed>0)Feedback($"房间已关闭，旧邀请已失效。{unconfirmed} 位成员暂未确认退出，恢复连接后将离开旧房间。",FeedbackTone.Warning);
         else if(host && confirmed)Feedback("房间已关闭，所有在线成员已确认退出，旧邀请已失效。");
         else if(host && serviceStopped)Feedback("本机房间服务和公网连接已关闭，旧房间已失效。");
-        else if(host)Feedback("已退出本机房间并关闭公网连接；尚未收到服务端关房确认。",FeedbackTone.Warning);
-        else Feedback(confirmed?"已退出房间。":"已退出本机房间；尚未收到服务端退出确认。",confirmed?FeedbackTone.Success:FeedbackTone.Warning);
+        else if(host)Feedback("你已退出并关闭公网连接，但暂时无法确认其他成员是否都已退出。",FeedbackTone.Warning);
+        else Feedback(confirmed?"已退出房间。":"你已在本机退出，暂时无法确认服务器是否收到。重新加入时会核对成员信息。",confirmed?FeedbackTone.Success:FeedbackTone.Warning);
         async Task Clean(Func<Task> action,string stage){try{await action();}catch(Exception error){cleanupFailed=true;AppFaultLog.Record(error,stage);}}
     }
 }

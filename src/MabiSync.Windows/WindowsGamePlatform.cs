@@ -27,7 +27,7 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
     public static void PositionPhysicalOverlay(nint overlay,ClientArea area)
     {
         using var dpi=new PhysicalDpiScope();
-        if(!Native.SetWindowPos(overlay,-1,area.Left,area.Top,area.Width,area.Height,0x0010|0x0040))throw new Win32Exception(Marshal.GetLastWin32Error(),"无法定位按钮点选层。");
+        if(!Native.SetWindowPos(overlay,-1,area.Left,area.Top,area.Width,area.Height,0x0010|0x0040))throw new Win32Exception(Marshal.GetLastWin32Error(),"无法打开按钮位置选择，请重试。");
     }
     public ButtonBinding ReadCursorCalibration(GameWindowId window)
     {
@@ -35,7 +35,7 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
         var state = Inspect(window) ?? throw new InvalidOperationException("游戏窗口已失效。");
         if (!Native.GetCursorPos(out var point) || !PointBelongsToWindow(window, point.X, point.Y)) throw new InvalidOperationException("请把鼠标停在目标游戏按钮上。");
         var x = point.X - state.Client.Left; var y = point.Y - state.Client.Top;
-        if (x < 0 || y < 0 || x >= state.Client.Width || y >= state.Client.Height) throw new InvalidOperationException("鼠标不在游戏客户区。");
+        if (x < 0 || y < 0 || x >= state.Client.Width || y >= state.Client.Height) throw new InvalidOperationException("请在游戏画面内点选按钮位置。");
         return new(x, y, state.Client.Width, state.Client.Height, state.Client.Dpi);
     }
     public IReadOnlyList<GameWindowState> ListGameWindows(bool includeOtherWindows=false)
@@ -90,7 +90,7 @@ public sealed class WindowsGamePlatform : IGameInputPlatform
     }
     private static void Send(Native.Input input)
     {
-        if (Native.SendInput(1, [input], Marshal.SizeOf<Native.Input>()) != 1) throw new Win32Exception(Marshal.GetLastWin32Error(), "系统未接受输入，请检查游戏焦点及输入权限。");
+        if (Native.SendInput(1, [input], Marshal.SizeOf<Native.Input>()) != 1) throw new Win32Exception(Marshal.GetLastWin32Error(), "系统未能发送按键或点击。请将游戏切到前台，并确认工具与游戏的运行权限相同。");
     }
     private static GameWindowId? ReadIdentity(nint window)
     {

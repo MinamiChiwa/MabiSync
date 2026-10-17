@@ -56,7 +56,7 @@ public partial class MainWindow : Window
             }
             Dispatcher.BeginInvoke(() => {
             _receipts.Add(receipt); if (_receipts.Count > 100) _receipts.RemoveAt(0);
-            ReceiptBox.Text = string.Join(Environment.NewLine, _receipts.TakeLast(8).Select(r => $"{(r.Simulated ? "模拟" : "普通输入")}：{r.Status} · 本机微调 {r.AppliedTimingOffsetMs:+0;-0;0} ms · 偏差 {(r.ActualLocalMs - r.PlannedLocalMs)?.ToString("F1") ?? "—"} ms · 游戏响应未确认 · {r.Detail}"));
+            ReceiptBox.Text = string.Join(Environment.NewLine, _receipts.TakeLast(8).Select(r => $"{(r.Simulated ? "模拟操作" : "游戏操作")}：{ActionStatusText(r.Status)} · 本机微调 {r.AppliedTimingOffsetMs:+0;-0;0} ms · 执行偏差 {(r.ActualLocalMs - r.PlannedLocalMs)?.ToString("F1") ?? "—"} ms · {r.Detail}"));
             });
         };
         MembersGrid.ItemsSource = _members; LeaderBox.ItemsSource = _members;
@@ -156,7 +156,7 @@ public partial class MainWindow : Window
         CountdownHint.Text = host && !active ? _countdownError ?? "" :
             active && performance!.Value.TryGetProperty("countdownMs", out var ms) ?
                 $"本轮倒计时 {ms.GetInt32() / 1000.0:0.###} 秒。" +
-                (performance.Value.TryGetProperty("requestedCountdownMs",out var requested) && requested.GetInt32()<ms.GetInt32()?" 已为提前量及网络准备自动补足时间。":"") : "";
+                (performance.Value.TryGetProperty("requestedCountdownMs",out var requested) && requested.GetInt32()<ms.GetInt32()?" 已自动延长倒计时，为提前触发和网络传输留出时间。":"") : "";
         CountdownBox.ToolTip = _countdownError ?? "1–60 秒，支持小数；开始时自动激活游戏窗口。";
         StartButton.IsEnabled &= _countdownError is null;
         StartButton.IsEnabled &= _rosterEdits==0;
@@ -194,12 +194,12 @@ public partial class MainWindow : Window
         {
             "preparing" => "正在准备",
             "committed" or "performing" when IsManualEnsembleJoiner => "等待组内加入",
-            "committed" when localReceipt is not null => localReceipt.Status switch { "executed" => "本机操作已执行", "failed" => "本机操作失败", "missed" => "已错过执行时刻", _ => "本机操作已返回结果" },
+            "committed" when localReceipt is not null => localReceipt.Status switch { "executed" => "本机操作已执行", "failed" => "本机操作失败", "missed" => "已错过执行时刻", _ => "本机操作已结束，请查看执行记录" },
             "committed" when now is not null => $"本机{prefix}{(emote ? "表情" : "演奏")}将在 {Math.Max(0, ((_scheduler.LocalDeadline(start.GetProperty("id").GetString()!) is { } deadline ? deadline - _clock.NowMs : target - now.Value)) / 1000):F1} 秒后触发",
             "committed" => "任务已安排",
-            "performing" => "演奏阶段",
+            "performing" => "本轮进行中",
             "interrupted" => "演奏中断",
-            "cancelled" => "未执行任务已取消",
+            "cancelled" => "本轮已取消",
             "stopped" when emote => "本轮已结束",
             "stopped" => "本轮已结束",
             _ => "等待准备"
@@ -272,7 +272,7 @@ public partial class MainWindow : Window
         if(participants.Length==0)throw new InvalidOperationException("请先选择本轮参与者。");
         var waiting=_members.Where(m=>m.Selected && m.Id!=ViewSession?.MemberId && !m.Ready).Select(m=>m.Nickname).ToArray();
         if(waiting.Length>0)throw new InvalidOperationException("等待就绪："+string.Join("、",waiting)+"。");
-        MessageText.Text="正在校准本轮联机时间……";
+        MessageText.Text="正在同步成员时钟……";
         await _client.RefreshClockAsync();
         if(!_inputRouter.UseSimulation && participants.Contains(ViewSession?.MemberId))await _gamePlatform.ActivateAsync(SelectedWindow??throw new InvalidOperationException("请先选择游戏窗口。"),_calibrationCancellation.Token);
         if (participants.Contains(ViewSession?.MemberId))
@@ -287,14 +287,14 @@ public partial class MainWindow : Window
         }
         else if (mode != "emote" && SelectedStopRule == MusicStopRule.FirstCycle)
         {
-            if (!_client.SupportsFirstCycleStop) throw new InvalidOperationException("当前房间服务尚未支持一轮停止，请由房主更新服务后重建房间。");
+            if (!_client.SupportsFirstCycleStop) throw new InvalidOperationException("当前服务器版本不支持一轮停止，请房主更新服务器后重新建房。");
             await _client.SendAsync(new { type = "prepare", mode, countdownMs, participantIds = participants, stopRule = "first-cycle" });
-            MessageText.Text = "等待总指挥的新乐谱信息，取得后安排一轮停止。";
+            MessageText.Text = "等待识别总指挥本轮的乐谱，识别后会安排全员停止。";
         }
         else
         {
             await _client.SendAsync(new { type = "prepare", mode, countdownMs, participantIds = participants });
-            if (mode != "emote") MessageText.Text = "本轮同步乐谱使用者开始；参与者手动加入，结束由房主统一停止。";
+            if (mode != "emote") MessageText.Text = "各组乐谱使用者将同步开始，组员请在游戏中依序加入，由房主统一停止。";
         }
         SaveSettings();
     });
@@ -335,7 +335,7 @@ public partial class MainWindow : Window
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or KeyNotFoundException or InvalidOperationException)
         {
             try { File.Copy(_settings, _settings + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss"), false); } catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException) { }
-            MessageText.Text = "原配置无法读取，已尝试保留副本并使用默认设置。";
+            MessageText.Text = "无法读取已保存的设置，已恢复默认设置。";
         }
     }
     private void SaveSettings()
@@ -373,29 +373,45 @@ public partial class MainWindow : Window
         async Task Cleanup(string stage, Func<Task> cleanup)
         { try { await cleanup(); } catch (Exception error) { AppFaultLog.Record(error, stage); } }
     }
+    private static string ActionStatusText(string status) => status switch
+    {
+        "executed" => "已执行", "failed" => "执行失败", "missed" => "未能按时执行", "cancelled" => "已取消", _ => status
+    };
     private static string Friendly(string message) => message switch
     {
         "BAD_NICKNAME" => "请填写 1–20 字的昵称，或通过抓包识别更新昵称。",
         "MEMBER_NOT_READY" => "选中的成员尚未全部就绪，请让成员就绪或取消勾选。",
-        "NO_ENSEMBLE_INITIATOR" => "本轮没有乐谱使用者，请由房主右键设置至少一位参与的合奏乐谱使用者。",
-        "CANNOT_KICK_HOST" => "房主不能将自己移出房间；请使用离开房间。",
+        "NO_ENSEMBLE_INITIATOR" => "请房主在成员列表中指定至少一位“乐谱使用者”，并勾选其参与本轮。",
+        "CANNOT_KICK_HOST" => "退出请点击“关闭房间”，所有成员会一起退出。",
         "BAD_ENSEMBLE_GROUP" => "合奏组编号应为 1–24。",
         "BAD_ENSEMBLE_ORDER" => "顺序应为 1–24，组内按连续顺序排列。",
         "BAD_INSTRUMENT" => "乐器名称最多 40 字，请去掉换行和控制字符。",
-        "CHARACTER_NOT_OBSERVED" => "该角色已不在当前观测列表中，请等待新的合奏成员数据。",
-        "CAPTURE_IDENTITY_CONFLICT" => "该成员已有本机抓包确认的角色，不能用手动关联覆盖。",
+        "CHARACTER_NOT_OBSERVED" => "抓包暂未识别到这个角色，请等待合奏成员列表更新后重试。",
+        "CAPTURE_IDENTITY_CONFLICT" => "已通过该成员的抓包识别其角色，无需手动匹配。",
         "BAD_OBSERVATION" => "加入顺序未更新：抓包数据未通过校验。",
-        "OBSERVATION_RECONNECT_REQUIRED" => "观测连接状态已失效，请重新连接房间以刷新。",
+        "OBSERVATION_RECONNECT_REQUIRED" => "角色识别信息已过期，请点击“重新连接”后重试。",
         "FORBIDDEN" => "该操作由房主执行。",
         "SESSION_ACTIVE" => "本轮任务仍在进行，请先取消或统一停止。",
         "USE_STOP_ALL" => "开始时刻已经过去，请使用全员停止。",
         "LEADER_NOT_PARTICIPATING" => "请将指定总指挥加入本轮参与者。",
-        "AUTOMATIC_END_UNVERIFIED" => "首轮终点尚未完成游戏核对，请使用用户指定时长或手动停止。",
-        "STOP_NOT_APPLICABLE" => "表情只需统一触发，不设置演奏时长或停止任务。",
+        "AUTOMATIC_END_UNVERIFIED" => "暂时无法自动判断一轮结束，请选择“手动指定演奏时长”或“房主手动统一停止”。",
+        "STOP_NOT_APPLICABLE" => "表情动作只需同步开始，无需设置停止。",
         "NOT_IN_ROOM" => "请先创建或加入房间。",
         "COUNTDOWN_BEFORE_LOCAL_TRIGGER" => "倒计时短于某位成员的提前量，请增加倒计时或减小该成员的提前量。",
         "ALREADY_IN_ROOM" => "请先离开当前房间。",
         "ROOM_NOT_FOUND" or "SESSION_EXPIRED" => "房间或身份已失效，请重新创建或加入。",
+        "ROOM_FULL" => "房间已满，请房主移出离线成员，或加入其他房间。",
+        "SERVER_BUSY" => "服务器繁忙，请稍后重试。",
+        "RATE_LIMIT" => "操作太快，请稍等几秒再试。",
+        "INCOMPATIBLE_CLIENT" => "工具与服务器版本不兼容，请更新后重新连接。",
+        "MEMBER_NOT_FOUND" => "该成员已离开房间，请刷新后重试。",
+        "BAD_PARTICIPANTS" => "本轮成员列表有变化，请重新选择参与者。",
+        "BAD_COUNTDOWN" => "倒计时请填写 1–60 秒。",
+        "BAD_DURATION" => "演奏时长请填写 0.001–86400 秒。",
+        "BAD_STOP_RULE" => "无法识别停止方式，请重新选择。",
+        "NO_INTERRUPTION" => "当前没有需要处理的演奏中断。",
+        "STALE_ACTION" or "STALE_SESSION" => "本轮操作已失效，请确认房间状态后重试。",
+        "BAD_MESSAGE" or "BAD_CAPABILITIES" or "BAD_RECEIPT" => "服务器无法识别本次操作，请更新工具后重新连接。",
         _ => message
     };
 }

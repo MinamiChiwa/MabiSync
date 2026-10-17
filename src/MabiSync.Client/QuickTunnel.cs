@@ -52,16 +52,16 @@ public sealed class QuickTunnel(ITunnelLauncher launcher, IQuickTunnelProbe prob
                 var process = launcher.Start(executable, port, line => { if (generation == Volatile.Read(ref _generation) && ExtractEndpoint(line) is { } endpoint) address.TrySetResult(endpoint); });
                 _process = process;
                 var first = await Task.WhenAny(address.Task, process.Exited).WaitAsync(limit.Token).ConfigureAwait(false);
-                if (first != address.Task || process.HasExited) throw new IOException("公网连接进程提前退出。");
+                if (first != address.Task || process.HasExited) throw new IOException("Cloudflare 意外退出，请重新建立公网连接。");
                 var endpoint = await address.Task.ConfigureAwait(false);
-                Publish(new("verifying", null, "正在核对公网房间连接，尚未生成可用邀请地址…"));
+                Publish(new("verifying", null, "正在测试公网连接，请稍候…"));
                 while (!await probe.VerifyAsync(endpoint, epoch, limit.Token).ConfigureAwait(false))
                 {
-                    if (process.HasExited) throw new IOException("公网连接进程已退出。");
+                    if (process.HasExited) throw new IOException("Cloudflare 已退出，请重新建立公网连接。");
                     await Task.Delay(500, limit.Token).ConfigureAwait(false);
                 }
                 limit.Token.ThrowIfCancellationRequested();
-                if (process.HasExited) throw new IOException("公网连接进程已退出。");
+                if (process.HasExited) throw new IOException("Cloudflare 已退出，请重新建立公网连接。");
                 Publish(new("ready", endpoint, "公网连接已就绪，可复制完整邀请交给另一位玩家。"));
                 _ = ObserveExit(process, generation);
                 _healthTask = ObserveHealth(process, endpoint, epoch, generation, _run.Token);
@@ -98,10 +98,10 @@ public sealed class QuickTunnel(ITunnelLauncher launcher, IQuickTunnelProbe prob
                 catch(Exception error) when(error is IOException or System.Net.Http.HttpRequestException or OperationCanceledException) {reachable=false;}
                 if(token.IsCancellationRequested || generation!=Volatile.Read(ref _generation) || process.HasExited)return;
                 failures=reachable?0:failures+1;
-                if(failures>=3) {Publish(new("error",null,"公网连接连续核对失败，邀请暂不可用。请重新建立公网连接并分享新邀请；本机房间仍保留。"));return;}
+                if(failures>=3) {Publish(new("error",null,"公网连接已失效。请重新建立公网连接，并将新邀请发给好友。本机房间仍保留。"));return;}
             }
         } catch(OperationCanceledException) when(token.IsCancellationRequested) { }
-        catch(Exception error) { if(generation==Volatile.Read(ref _generation))Publish(new("error",null,"公网连接核对中断，请重新建立公网连接："+error.Message)); }
+        catch(Exception error) { if(generation==Volatile.Read(ref _generation))Publish(new("error",null,"检查公网连接时出错，请重新建立连接："+error.Message)); }
     }
     public async Task StopAsync()
     {

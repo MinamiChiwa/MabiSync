@@ -18,7 +18,7 @@ internal sealed class ButtonPickerWindow : Window
     private readonly TaskCompletionSource<ButtonBinding?> _completion=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly DispatcherTimer _check=new(){Interval=TimeSpan.FromMilliseconds(40)};
     private bool _leftDown;
-    internal ButtonPickerWindow(WindowsGamePlatform platform,GameWindowId game,ClientArea area)
+    internal ButtonPickerWindow(WindowsGamePlatform platform,GameWindowId game,ClientArea area,string? stopShortcut=null)
     {
         _platform=platform;_game=game;_area=area;
         WindowStyle=WindowStyle.None;ResizeMode=ResizeMode.NoResize;AllowsTransparency=true;
@@ -26,7 +26,7 @@ internal sealed class ButtonPickerWindow : Window
         Width=100;Height=100;
         Content=new Border {BorderBrush=new SolidColorBrush(Color.FromRgb(62,130,245)),BorderThickness=new(2),Child=new Border {
             VerticalAlignment=VerticalAlignment.Top,HorizontalAlignment=HorizontalAlignment.Center,Margin=new(12),Padding=new(16,10,16,10),CornerRadius=new(7),Background=new SolidColorBrush(Color.FromArgb(240,24,39,64)),
-            Child=new TextBlock{Text="点击要记录的游戏按钮 · 右键 / Esc / F9 取消",Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,FontSize=16}
+            Child=new TextBlock{Text="点击要记录的游戏按钮 · 右键 / Esc"+(stopShortcut is null?"":" / "+stopShortcut)+" 取消",Foreground=Brushes.White,TextWrapping=TextWrapping.Wrap,FontSize=16}
         }};
         SourceInitialized+=(_,_)=>PositionOverlay();
         // WPF can apply monitor DPI while showing; set the final bounds again using physical pixels.

@@ -61,7 +61,7 @@ public partial class MainWindow
                     timingSource = music.TimingSource, estimatedStartServerMs = estimatedStart } });
             _reportedObservation = signature; _reportedMember = memberId; _observationSentAt = _clock.NowMs;
         }
-        catch (Exception error) { if (!_closing && ViewConnected) MessageText.Text = "游戏观测暂未同步到房间：" + Friendly(error.Message); }
+        catch (Exception error) { if (!_closing && ViewConnected) MessageText.Text = "抓包识别结果暂未更新到房间：" + Friendly(error.Message); }
     }
     private void SyncEnsembleInputPermission()
     {

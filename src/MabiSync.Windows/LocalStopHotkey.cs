@@ -8,6 +8,7 @@ public sealed class LocalStopHotkey : IDisposable
     private readonly Thread _thread;
     private uint _threadId;
     public bool Registered { get; private set; }
+    public string? Shortcut { get; private set; }
     public LocalStopHotkey(Action stop)
     {
         using var ready = new ManualResetEventSlim();
@@ -15,7 +16,10 @@ public sealed class LocalStopHotkey : IDisposable
         {
             _threadId = GetCurrentThreadId();
             PeekMessage(out _, 0, 0, 0, 0); // Create this thread's message queue before Dispose can post WM_QUIT.
-            Registered = RegisterHotKey(0, Id, 0x4000, 0x78); ready.Set();
+            // Respect other applications' registrations; use a less common chord on conflict.
+            foreach(var (modifiers,label) in new (uint,string)[]{(0,"F9"),(3,"Ctrl+Alt+F9"),(6,"Ctrl+Shift+F9")})
+                if(RegisterHotKey(0,Id,0x4000|modifiers,0x78)){Shortcut=label;Registered=true;break;}
+            ready.Set();
             if (!Registered) return;
             try { while (GetMessage(out var message, 0, 0, 0) > 0) if (message.Id == 0x0312 && message.WParam == Id) try { stop(); } catch (Exception) { /* callback owns its diagnostics */ } }
             finally { UnregisterHotKey(0, Id); }

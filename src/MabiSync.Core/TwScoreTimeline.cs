@@ -9,7 +9,7 @@ internal sealed record TwScoreTimeline(string? Sha256, ScoreTimeline? Timeline, 
     private static readonly Encoding Utf8 = new UTF8Encoding(false, true);
     public static TwScoreTimeline Decode(ReadOnlySpan<byte> blob, bool loop)
     {
-        if (blob.Length > TwGameProtocol.MaximumBody) return new(null, null, "谱面超过可解析大小。");
+        if (blob.Length > TwGameProtocol.MaximumBody) return new(null, null, "乐谱文件过大，暂时无法读取。");
         // Four envelope bytes are opaque, never an allocation length.
         for (var candidate = 0; candidate < 3; candidate++)
         {
@@ -26,7 +26,7 @@ internal sealed record TwScoreTimeline(string? Sha256, ScoreTimeline? Timeline, 
                 var text = Utf8.GetString(expanded).TrimEnd('\0', '\r', '\n', ' ');
                 var hash = Convert.ToHexString(SHA256.HashData(Utf8.GetBytes(text))).ToLowerInvariant();
                 var timeline = MmlTimeline.Parse(text, loop, new(TempoScope.Global, EndScope.EntireScore));
-                return new(hash, timeline, timeline.TimingSupported ? null : "谱面包含尚未支持的语法或速度变化。");
+                return new(hash, timeline, timeline.TimingSupported ? null : "暂时无法计算这份乐谱的时长：包含未支持的写法或速度变化。");
             }
             catch (Exception error) when (error is InvalidDataException or DecoderFallbackException) { }
         }

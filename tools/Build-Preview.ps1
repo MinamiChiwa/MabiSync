@@ -1,5 +1,5 @@
 #requires -Version 7.4
-param([string]$NodePath, [string]$CloudflaredPath, [string]$NodeLicensePath, [string]$CloudflaredLicensePath, [string]$Label='0.1.2-preview.7', [switch]$SkipChecks, [switch]$Release)
+param([string]$NodePath, [string]$CloudflaredPath, [string]$NodeLicensePath, [string]$CloudflaredLicensePath, [string]$Label='0.1.3', [switch]$SkipChecks, [switch]$Release)
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {

@@ -62,7 +62,7 @@ public partial class MainWindow
         if (ViewRoom is not { } room) { EnsembleRoleText.Text = "入房后由房主分组并指定乐谱使用者。"; return; }
         var self = _members.FirstOrDefault(m => m.Id == ViewSession?.MemberId);
         EnsembleRoleText.Text = self is null ? "等待房间成员信息。" : IsManualEnsembleJoiner
-            ? $"{self.GroupText} · 第 {self.Order} 位加入。设置停止方式后就绪，乐谱使用者开始后在游戏中加入。"
+            ? $"{self.GroupText} · 第 {self.Order} 位加入。设置停止按键或按钮后点击“就绪”，等乐谱使用者开始后在游戏中加入。"
             : $"{self.GroupText} · 乐谱使用者。在背包中选好乐谱，设置乐谱使用按钮与停止快捷键。";
         var rows = ensemble ? _members.OrderBy(m => m.Group).ThenBy(m => m.Order).ToArray()
             : room.GetProperty("members").EnumerateArray().Select(m => _members.FirstOrDefault(row => row.Id == m.GetProperty("id").GetString())).OfType<MemberRow>().ToArray();
@@ -121,7 +121,7 @@ public partial class MainWindow
         Add(menu, member.Selected ? "不参与本轮" : "参与本轮", () => { member.Selected = !member.Selected; return Task.CompletedTask; }, !RoundActive);
         Add(menu, "设为总指挥（乐谱与一轮停止参考）", () => _client.SendAsync(new { type = "select-leader", memberId = member.Id }), !RoundActive);
         Add(menu, member.EnsembleRole == "initiator" ? "改为手动加入的参与者" : "设为本组乐谱使用者（替换原乐谱使用者）", () => _client.SendAsync(new { type = "set-ensemble-role", memberId = member.Id, musicRole = member.EnsembleRole == "initiator" ? "joiner" : "initiator" }), !RoundActive);
-        var identities = new MenuItem { Header = "关联已观测角色（未安装 Npcap 的成员）" };
+        var identities = new MenuItem { Header = "匹配游戏角色（未安装 Npcap 的成员）" };
         if (ViewRoom is { } observedRoom && observedRoom.TryGetProperty("observedCharacters", out var characters))
             foreach (var character in characters.EnumerateArray())
             {
@@ -130,8 +130,8 @@ public partial class MainWindow
                 Add(identities, $"{character.GetProperty("nickname").GetString()} · 区服 {realmId}",
                     () => _client.SendAsync(new { type = "bind-game-character", memberId = member.Id, characterId, realmId }));
             }
-        if (identities.Items.Count == 0) identities.Items.Add(new MenuItem { Header = "等待观测端取得完整合奏成员", IsEnabled = false });
-        Add(identities, "清除手动关联", () => _client.SendAsync(new { type = "bind-game-character", memberId = member.Id, characterId = (string?)null }));
+        if (identities.Items.Count == 0) identities.Items.Add(new MenuItem { Header = "等待抓包识别合奏成员", IsEnabled = false });
+        Add(identities, "取消角色匹配", () => _client.SendAsync(new { type = "bind-game-character", memberId = member.Id, characterId = (string?)null }));
         menu.Items.Add(identities);
         var same = _members.Where(m => m.Group == member.Group).OrderBy(m => m.Order).ToArray();
         var index = Array.IndexOf(same, member);
