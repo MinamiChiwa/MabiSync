@@ -198,9 +198,12 @@ public partial class MainWindow
             Volatile.Write(ref _currentCalibration, cancellation);
             _calibrating = true; Refresh();
             var restoreState=WindowState;
+            var overlay=_informationWindow;
+            var restoreOverlay=overlay?.IsVisible==true;
             try
             {
                 Hide();
+                if(restoreOverlay)overlay!.Hide();
                 await _gamePlatform.ActivateAsync(window,cancellation.Token);
                 var state=_gamePlatform.Inspect(window)??throw new InvalidOperationException("游戏窗口已失效。");
                 var picker=new ButtonPickerWindow(_gamePlatform,window,state.Client,_hotkey?.Shortcut);
@@ -210,7 +213,7 @@ public partial class MainWindow
                 Feedback($"已记录{(start?"开始":"停止")}按钮位置 ({binding.X}, {binding.Y})，设置已保存。");
             }
             catch(OperationCanceledException){Feedback("已取消位置记录，原按钮设置已保留。",FeedbackTone.Info);return;}
-            finally { Volatile.Write(ref _currentCalibration, null); _calibrating = false;if(!_closing){Show();WindowState=restoreState;Activate();} }
+            finally { Volatile.Write(ref _currentCalibration, null); _calibrating = false;if(!_closing){Show();WindowState=restoreState;Activate();if(restoreOverlay && ReferenceEquals(overlay,_informationWindow))overlay!.Show();} }
             InputChanged();
         });
     }

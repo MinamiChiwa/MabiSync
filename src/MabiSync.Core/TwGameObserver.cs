@@ -9,7 +9,6 @@ public sealed class TwGameObserver
     private readonly Dictionary<ulong, Score> _scores = [];
     private readonly Dictionary<ulong, int[]> _parts = [];
     private ulong? _personal;
-    private bool _personalAwaitingChannel;
     private ulong[] _order = [];
     private string _generation = Guid.NewGuid().ToString("N");
     private long _sequence;
@@ -18,8 +17,16 @@ public sealed class TwGameObserver
     public TwGameObserver() => Current = new(_generation, ++_sequence, null, null, "等待识别角色昵称，请切换地图或重新登录角色。");
     public void Reset(string reason)
     {
-        _actors.Clear(); _concerts.Clear(); _playing.Clear(); _scores.Clear(); _parts.Clear(); _personal = null; _personalAwaitingChannel = false; _order = [];
+        _actors.Clear(); _concerts.Clear(); _playing.Clear(); _scores.Clear(); _parts.Clear(); _personal = null; _order = [];
         _generation = Guid.NewGuid().ToString("N"); _sequence = 0; Publish(reason);
+    }
+    private void ResetMap(string reason)
+    {
+        // Character ID belongs to this connection; actor IDs and music belong to
+        // the map. Require fresh public data before identifying the local actor.
+        var personal = _personal;
+        Reset(reason);
+        _personal = personal;
     }
     public void AcceptIdentity(GameIdentity identity)
     {
@@ -32,7 +39,7 @@ public sealed class TwGameObserver
     {
         if (id == 0) throw new InvalidDataException("Invalid local character ID");
         if (_personal is not null) Reset("角色信息已更新，等待重新识别。");
-        _personal = id; _personalAwaitingChannel = true; Publish();
+        _personal = id; Publish();
     }
     public void AcceptConcert(ulong id, ulong host)
     {
@@ -47,10 +54,7 @@ public sealed class TwGameObserver
         switch (code)
         {
             case 20307:
-                // Captured TW ordering is PersonalData -> EnteringChannel -> PublicData.
-                // Carry only the pending initializer's ID, never old actor/concert state.
-                var initializedId = _personalAwaitingChannel ? _personal : null;
-                Reset("游戏正在切换频道，等待重新识别角色。"); _personal = initializedId; return;
+                ResetMap("游戏正在切换地图，等待重新识别角色。"); return;
             case 20047: AcceptIdentity(TwGameProtocol.DecodeCharacter(bytes)); return;
             case 20520:
                 // Static BasePersonalReplicatedData first field, not whole PersonalData.
@@ -102,7 +106,7 @@ public sealed class TwGameObserver
                 break;
             case 20238:
                 actor = reader.ULong(); reader.Finish();
-                if (Current.Identity?.ActorId == actor) { Reset("角色已离开当前频道，等待重新识别。"); return; }
+                if (Current.Identity?.ActorId == actor) { ResetMap("角色正在切换地图，等待重新识别。"); return; }
                 _actors.Remove(actor); RemovePlay(actor); break;
             default: return;
         }

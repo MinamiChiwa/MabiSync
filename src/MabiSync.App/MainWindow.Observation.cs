@@ -15,15 +15,26 @@ public partial class MainWindow
     private long _observationSequence;
     private string? _localEnsembleLayout;
     private bool _wasEnsembleReady;
+    private int _observationQueued;
     private void InitializeObservation()
     {
         _observationTimer.Tick += (_, _) => ObservationTick(); _observationTimer.Start();
+        _gameObservation.Changed+=CaptureObservationChanged;
+    }
+    private void CaptureObservationChanged(CaptureObservation state)
+    {
+        if(_closing || Interlocked.Exchange(ref _observationQueued,1)!=0)return;
+        Dispatcher.BeginInvoke(()=>{
+            Interlocked.Exchange(ref _observationQueued,0);
+            if(!_closing){ObservationTick();RefreshStatus();}
+        });
     }
     private void ObservationTick()
     {
         if (_closing) return;
         var state = _gameObservation.Current;
         ObservationStatusText.Text = state.Status;
+        ObservationStatusText.Foreground = ColorBrush(state.Running && state.Game.Identity is not null ? "#86E1B2" : "#A8B4C7");
         if (state.Game.Identity is { } identity && NicknameBox.Text != identity.Nickname)
             NicknameBox.Text = identity.Nickname;
         if (!ViewConnected || !_client.SupportsGameObservation || ViewSession is not { } session || !_observationSend.IsCompleted) return;

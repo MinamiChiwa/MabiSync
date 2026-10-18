@@ -9,7 +9,7 @@ using System.Windows.Threading;
 using MabiSync.Client;
 using MabiSync.Core;
 
-internal static class Program
+internal static partial class Program
 {
     private static readonly BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     private static int _failed;
@@ -32,7 +32,7 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         Dispatcher.CurrentDispatcher.BeginInvoke(async () =>
         {
-            try { await HeaderActions();await UpdateUi();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await GrowingRosterAndJoinerBindings(); await LongScoreDisplay(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
+            try { await InformationOverlay();await HeaderActions();await UpdateUi();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await GrowingRosterAndJoinerBindings(); await LongScoreDisplay(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await OverlayCommands(args[1]);await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
             catch (Exception error) { _failed++; Console.WriteLine("FAIL " + Unwrap(error)); }
             finally { app.Shutdown(); Dispatcher.ExitAllFrames(); }
         });
@@ -59,16 +59,15 @@ internal static class Program
     {
         var window=NewWindow();
         try {
-            Check(window.Topmost,"Window does not default to topmost");
+            Check(!window.Topmost,"Main window must default to unpinned");
             var pin=window.FindName("PinWindowButton") as Button;var privacy=window.FindName("CapturePrivacyButton") as Button;
             Check(pin is not null && privacy is not null && window.FindName("SponsorButton") is Button,"Header icon actions missing");
             var versionText=window.FindName("VersionText") as TextBlock;
             var expectedVersion=_windowType.Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
             Check(versionText is not null && versionText.Text==$"v{expectedVersion}" && window.Title.Contains(versionText.Text),"UI version must match the running application, including preview suffix");
             Check(window.FindName("CheckUpdateButton") is Button { Content: "检查更新", IsEnabled: true }, "Manual GitHub update check is missing");
-            Check(pin!.ToolTip!.ToString()!.Contains("已开启") && privacy!.ToolTip!.ToString()!.Contains("已关闭"),"Recording compatibility does not default capture exclusion to off");
+            Check(pin!.ToolTip!.ToString()!.Contains("已关闭") && privacy!.ToolTip!.ToString()!.Contains("已关闭"),"Window pin or recording exclusion default is wrong");
             Check(privacy!.ToolTip!.ToString()!.Contains("NVIDIA"),"Capture toggle omits the recorder compatibility hint");
-            pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!window.Topmost,"Pin button did not disable topmost");
             pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(window.Topmost,"Pin button did not enable topmost");
             new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
             var policy=Field<object>(window,"_windowCapturePolicy");

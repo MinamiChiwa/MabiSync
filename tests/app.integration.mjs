@@ -12,7 +12,7 @@ test('real WPF rendering survives room transitions and uses one room snapshot pe
   t.after(()=>{if(child.exitCode===null)child.kill();});
   let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
   // Includes 24-row layout and role-switch checks as well as live room flows.
-  const timeout=setTimeout(()=>child.kill(),40000);timeout.unref();
+  const timeout=setTimeout(()=>child.kill(),60000);timeout.unref();
   const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});clearTimeout(timeout);
   assert.equal(code,0,output);assert.match(output,/PASS WPF member arrival/);assert.match(output,/PASS WPF create/);
   t.diagnostic(output.trim());
