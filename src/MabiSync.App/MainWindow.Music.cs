@@ -82,6 +82,7 @@ public partial class MainWindow
     private void RefreshScoreObservation(bool visible, JsonElement? performance)
     {
         ScoreCard.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ScoreObservationText.Foreground=ColorBrush("#BECBDD");
         ScoreObservationText.ToolTip="总指挥启用抓包识别后开始演奏，可读取乐谱与时长。";
         if (!visible) return;
         var room = ViewConnected ? ViewRoom : null;
@@ -96,9 +97,11 @@ public partial class MainWindow
                 {
                     var title = score.GetProperty("title").GetString();
                     var whole = score.GetProperty("wholeScoreDurationSeconds"); var selected = score.GetProperty("selectedDurationSeconds");
+                    ScoreObservationText.Foreground=ColorBrush(whole.ValueKind==JsonValueKind.Number?"#86E1B2":"#F6D58B");
                     ScoreObservationText.Text = $"总指挥乐谱：{(string.IsNullOrWhiteSpace(title) ? "未命名乐谱" : title)} · " +
                         (whole.ValueKind == JsonValueKind.Number ? $"完整乐谱 {whole.GetDouble():0.###} 秒" : "时长待解析") +
-                        (selected.ValueKind == JsonValueKind.Number ? $" · 当前音轨 {selected.GetDouble():0.###} 秒" : "");
+                        (selected.ValueKind == JsonValueKind.Number ? $" · 当前音轨 {selected.GetDouble():0.###} 秒" : "") +
+                        (active && !ScoreBelongsToRound(score,performance!.Value)?" · 等待本轮起点":"");
                     ScoreObservationText.ToolTip=score.GetProperty("issue").GetString() ?? "乐谱时长已识别，游戏中的开始与循环时间仍需核对。";
                     return;
                 }
@@ -109,7 +112,21 @@ public partial class MainWindow
         var local = _gameObservation.Current.Game.Music;
         ScoreObservationText.Text = local is null ? "乐谱：等待识别" :
             $"本机乐谱：{local.Title} · " + (local.WholeScoreDurationSeconds is { } seconds ? $"完整乐谱 {seconds:0.###} 秒" : "时长待解析");
-        if(local is not null)ScoreObservationText.ToolTip=local.Issue;
+        if(local is not null){ScoreObservationText.ToolTip=local.Issue;ScoreObservationText.Foreground=ColorBrush(local.WholeScoreDurationSeconds is not null?"#86E1B2":"#F6D58B");}
+    }
+    private static bool ScoreBelongsToRound(JsonElement score,JsonElement performance)
+    {
+        if(performance.GetProperty("phase").GetString() is not ("committed" or "performing" or "interrupted"))return false;
+        if(!score.TryGetProperty("estimatedStartServerMs",out var onset) || onset.ValueKind!=JsonValueKind.Number)return false;
+        var earliest=performance.TryGetProperty("earliestStartServerMs",out var first) && first.ValueKind==JsonValueKind.Number
+            ? first.GetDouble():performance.GetProperty("startAction").GetProperty("targetServerMs").GetDouble();
+        if(!double.IsFinite(onset.GetDouble()) || onset.GetDouble()<earliest-250)return false;
+        if(!performance.TryGetProperty("stopRule",out var rule) || rule.GetString()!="first-cycle")return true;
+        // For first-cycle mode, use the same score binding accepted by the room
+        // rather than treating music still observed from a previous round as new.
+        return performance.TryGetProperty("cycleScore",out var bound) && bound.ValueKind==JsonValueKind.Object &&
+            score.TryGetProperty("concertId",out var concert) && bound.GetProperty("concertId").ToString()==concert.ToString() &&
+            score.TryGetProperty("scoreSha256",out var hash) && bound.GetProperty("scoreSha256").GetString()==hash.GetString();
     }
     private string InterruptionText(JsonElement detail)
     {

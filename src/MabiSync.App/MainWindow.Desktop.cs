@@ -16,7 +16,7 @@ public partial class MainWindow
         VersionText.Text=$"v{ApplicationVersion}";
         Title=$"MabiSync · v{ApplicationVersion}";
         InitializeUpdates();
-        Topmost=true;
+        Topmost=false;
         RefreshWindowActions();
         SourceInitialized+=(_,_)=>ApplyCapturePolicy();
     }
@@ -61,6 +61,7 @@ public partial class MainWindow
         if(!_windowCapturePolicy.Apply(this,_hideFromCapture,out error))return false;
         foreach(Window owned in OwnedWindows)
             if(!_windowCapturePolicy.Apply(owned,_hideFromCapture,out error))return false;
+        if(_informationWindow is not null && !_windowCapturePolicy.Apply(_informationWindow,_hideFromCapture,out error))return false;
         return true;
     }
     private void ApplyCapturePolicy()

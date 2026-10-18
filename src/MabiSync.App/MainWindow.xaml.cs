@@ -25,7 +25,7 @@ public partial class MainWindow : Window
     private readonly List<ActionReceipt> _receipts = [];
     private readonly string _settings;
     private readonly bool _registerSystemHotkey;
-    private bool _refreshing, _closing, _closed, _uiReady;
+    private bool _refreshing, _closing, _closed, _uiReady, _roundActionBusy;
     private int _queued;
     public MainWindow() : this(null, true) { }
     internal MainWindow(string? settingsPath, bool registerSystemHotkey)
@@ -166,8 +166,10 @@ public partial class MainWindow : Window
         var pendingStart = active ? _scheduler.LocalDeadline(performance!.Value.GetProperty("startAction").GetProperty("id").GetString()!) : null;
         LocalStopButton.IsEnabled = active && (!emote || pendingStart is not null);
         RefreshRoleLayout(active, beforeStart);
+        ReadyButton.IsEnabled &= !_roundActionBusy;
+        StartButton.IsEnabled &= !_roundActionBusy;
     }
-    private void RefreshStatus() => WithRoomView(RefreshStatusView);
+    private void RefreshStatus() => WithRoomView(() => { RefreshStatusView(); RefreshInformationWindow(); });
     private void RefreshStatusView()
     {
         ConnectionStatus.Text = ViewConnected ? "已连接 MabiSync" : "尚未连接";
@@ -216,10 +218,13 @@ public partial class MainWindow : Window
     private async Task Run(Button? button, Func<Task> operation)
     {
         if (_closing) return;
+        var roundAction=button==ReadyButton || button==StartButton;
+        if(roundAction && _roundActionBusy)return;
+        if(roundAction)_roundActionBusy=true;
         if (button is not null) {button.IsEnabled = false;Feedback("正在处理…",FeedbackTone.Info);}
         try { await operation();if(button is not null && MessageText.Text=="正在处理…")Feedback("请求已发送，房间状态将自动更新。",FeedbackTone.Info); }
         catch (Exception error) { Feedback(Friendly(error.Message),FeedbackTone.Error); }
-        finally { if (button is not null) button.IsEnabled = true; if (!_closing) Refresh(); }
+        finally { if(roundAction)_roundActionBusy=false;if (button is not null) button.IsEnabled = true; if (!_closing) Refresh(); }
     }
     private async void ConnectClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => {if(_client.Session is not null){await ReconnectRoom();return;}await _client.ConnectAsync(EndpointBox.Text.Trim());Feedback("已连接，请创建或加入房间。");SaveSettings();});
     private async void StartServerClick(object sender, RoutedEventArgs e) => await RunConnection((Button)sender, async () => { RequireNoRoom(); await _server.StartAsync(LanCheck.IsChecked == true); EndpointBox.Text = "ws://127.0.0.1:3132"; await _client.ConnectAsync(EndpointBox.Text); MessageText.Text = _server.Status; });
@@ -319,6 +324,8 @@ public partial class MainWindow : Window
             NicknameBox.Text = root.GetProperty("nickname").GetString() ?? NicknameBox.Text;
             if(root.TryGetProperty("hideFromCapture",out var captureHidden) && captureHidden.ValueKind is JsonValueKind.True or JsonValueKind.False)
                 _hideFromCapture=captureHidden.GetBoolean();
+            if(root.TryGetProperty("overlayOpacity",out var opacity) && opacity.TryGetDouble(out var alpha) && double.IsFinite(alpha))
+                _informationOpacity=Math.Clamp(alpha,.35,1);
             if(root.TryGetProperty("publicProvider",out var provider))PublicProviderBox.SelectedIndex=provider.GetString() switch {"lan"=>1,"cloudflare"=>0,_=>2};
             if(root.TryGetProperty("lanEndpoint",out var lan) && lan.ValueKind==JsonValueKind.String) LanAddressBox.Text=lan.GetString()??LanAddressBox.Text;
             if (root.TryGetProperty("timingOffsetMs", out var adjustment) && adjustment.TryGetInt32(out var offset) && offset is >= -2000 and <= 2000) TimingOffsetSlider.Value = offset;
@@ -346,7 +353,7 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_settings)!);
             var temp = _settings + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), hideFromCapture = _hideFromCapture, countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
+            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), hideFromCapture = _hideFromCapture, overlayOpacity = _informationOpacity, countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
             File.Move(temp, _settings, true);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { MessageText.Text = "设置未能保存：" + error.Message; }
@@ -356,6 +363,8 @@ public partial class MainWindow : Window
         if (_closed) return;
         e.Cancel = true; if (_closing) return;
         _closing = true; IsEnabled = false; _displayTimer.Stop(); _observationTimer.Stop(); _calibrationCancellation.Cancel(); _hotkey?.Dispose(); SaveSettings();
+        _gameObservation.Changed-=CaptureObservationChanged;
+        _informationWindow?.Close();
         _scheduler.CancelAll();
         _networkOperation?.Cancel();
         try

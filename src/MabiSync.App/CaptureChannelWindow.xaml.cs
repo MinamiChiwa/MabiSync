@@ -103,6 +103,8 @@ public partial class CaptureChannelWindow : Window
     private void ShowObservation(CaptureObservation state)
     {
         CaptureStateText.Text = state.Status;
+        var color=new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(state.Running && state.Game.Identity is not null ? "#86E1B2" : "#A8B4C7"));
+        CaptureStateText.Foreground=IdentityText.Foreground=color;
         CountText.Text = $"已接收的数据包：{state.Packets}";
         IdentityText.Text = state.Game.Identity is { } identity ? $"已识别本机：{identity.Nickname}" + (state.Game.Concert is { } concert ? $" · 已核对 {concert.OrderedCharacterIds.Count} 名合奏成员" : " · 等待识别合奏成员")
             : "等待识别角色昵称。开启识别后，请切换地图或重新登录角色。";

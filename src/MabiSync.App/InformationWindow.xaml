@@ -1,0 +1,51 @@
+<Window x:Class="MabiSync.App.InformationWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="MabiSync · 信息浮窗" Width="460" SizeToContent="Height" MaxHeight="640" MinWidth="380" MinHeight="200"
+ WindowStyle="None" ResizeMode="CanResizeWithGrip" AllowsTransparency="True" Background="Transparent"
+ Topmost="True" ShowActivated="False" ShowInTaskbar="False" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="14">
+ <Border Background="#151E29" BorderBrush="#53677F" BorderThickness="1" CornerRadius="6" Padding="14">
+  <DockPanel>
+   <Grid DockPanel.Dock="Top" Background="Transparent" MouseLeftButtonDown="DragHeader" Margin="0,0,0,10" Cursor="SizeAll">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <StackPanel VerticalAlignment="Center"><TextBlock Text="MabiSync" FontWeight="SemiBold" FontSize="16" Foreground="#E2E8F0" /><TextBlock x:Name="RoomText" Text="尚未加入房间" Foreground="#A8B4C7" FontSize="12" /></StackPanel>
+    <Button x:Name="CloseButton" Grid.Column="1" Click="CloseClick" Style="{StaticResource HeaderIcon}" ToolTip="关闭信息浮窗" AutomationProperties.Name="关闭信息浮窗"><TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="14" /></Button>
+   </Grid>
+   <StackPanel DockPanel.Dock="Bottom">
+    <Separator Background="#344258" Margin="0,10,0,8" />
+    <TextBlock x:Name="PhaseText" Text="连接房间" FontSize="16" FontWeight="SemiBold" Foreground="#9DC7FF" TextWrapping="Wrap" />
+    <TextBlock x:Name="FeedbackText" Foreground="#F6D58B" FontSize="12" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="54" Margin="0,4,0,0" Visibility="Collapsed" ToolTip="{Binding Text,RelativeSource={RelativeSource Self}}" />
+    <WrapPanel Margin="0,6,0,4"><Button x:Name="ReadyButton" Content="就绪" Style="{StaticResource StopAction}" Visibility="Collapsed" Click="ReadyClick" /><Button x:Name="StartButton" Content="开始" Style="{StaticResource PrimaryAction}" Visibility="Collapsed" Click="StartClick" /></WrapPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="42" /></Grid.ColumnDefinitions>
+     <TextBlock Text="不透明度" Foreground="#A8B4C7" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0" />
+     <Slider x:Name="OpacitySlider" Grid.Column="1" Minimum="0.35" Maximum="1" Value="0.9" SmallChange="0.05" LargeChange="0.1" ValueChanged="OpacityChanged" VerticalAlignment="Center" ToolTip="调整信息浮窗的不透明度" />
+     <TextBlock x:Name="OpacityText" Grid.Column="2" Text="90%" Foreground="#A8B4C7" FontSize="12" TextAlignment="Right" VerticalAlignment="Center" />
+    </Grid>
+   </StackPanel>
+   <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+    <TextBlock x:Name="ScoreText" Text="需要总指挥开启抓包功能" Foreground="#C6DEFF" TextWrapping="Wrap" />
+    <TextBlock x:Name="ProgressText" Foreground="#A8B4C7" FontSize="12" Margin="0,4,0,4" TextWrapping="Wrap" />
+    <ProgressBar x:Name="ScoreProgress" Height="8" Minimum="0" Maximum="1" Foreground="#67CF9D" Background="#2B3A50" BorderThickness="0" Visibility="Collapsed" />
+   </StackPanel>
+   <Expander x:Name="MembersSection" Header="成员列表" IsExpanded="True" Expanded="MembersExpansionChanged" Collapsed="MembersExpansionChanged" ToolTip="展开或收起成员列表">
+   <DockPanel>
+    <Grid DockPanel.Dock="Top" Margin="0,0,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /><ColumnDefinition Width="98" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions>
+     <TextBlock Text="组 / 位" Foreground="#A8B4C7" FontSize="12" /><TextBlock Grid.Column="1" Text="成员 / 身份" Foreground="#A8B4C7" FontSize="12" /><TextBlock Grid.Column="2" Text="乐器" Foreground="#A8B4C7" FontSize="12" /><TextBlock Grid.Column="3" Text="状态" Foreground="#A8B4C7" FontSize="12" TextAlignment="Right" />
+    </Grid>
+    <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+     <ItemsControl x:Name="MembersList"><ItemsControl.ItemTemplate><DataTemplate>
+      <Border BorderBrush="#2D394B" BorderThickness="0,0,0,1" Padding="0,7">
+       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /><ColumnDefinition Width="98" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding OverlayOrder}" Foreground="#A8B4C7" VerticalAlignment="Center" />
+        <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="{Binding Nickname}" Foreground="{Binding NameBrush}" FontWeight="{Binding NameWeight}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Nickname}" /><TextBlock Text="{Binding OverlayRole}" Foreground="#A8B4C7" FontSize="12" TextWrapping="Wrap" /></StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding Instrument}" Foreground="#D3DCE8" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,6,0" />
+        <TextBlock Grid.Column="3" Text="{Binding Status}" Foreground="{Binding StatusBrush}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" TextAlignment="Right" />
+       </Grid>
+      </Border>
+     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    </ScrollViewer>
+   </DockPanel>
+   </Expander>
+  </DockPanel>
+ </Border>
+</Window>

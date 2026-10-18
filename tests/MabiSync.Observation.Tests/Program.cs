@@ -46,13 +46,35 @@ Add("Join array cannot identify a concert until local and participant evidence a
     var generation = observer.Current.Generation; observer.Reset("channel changed");
     Check(observer.Current.Identity is null && observer.Current.Generation != generation, "Old identity survived epoch");
 });
-Add("Channel entry follows personal initialization and retains only its new local ID", () =>
+Add("Map entry retains the confirmed character ID but requires fresh actor data", () =>
 {
     var observer = new TwGameObserver(); observer.AcceptPersonalId(101);
     observer.Accept(20307, []); observer.AcceptIdentity(new(101, 3, "NewChannel", 55));
     Check(observer.Current.Identity?.ActorId == 55, "EnteringChannel discarded preceding PersonalData ID");
     observer.Accept(20307, []);
     Check(observer.Current.Identity is null, "Channel entry reused an old identity without initialization");
+    observer.AcceptIdentity(new(102, 3, "Nearby", 77));
+    Check(observer.Current.Identity is null, "Map entry adopted a nearby player");
+    observer.AcceptIdentity(new(101, 3, "NewMap", 88));
+    Check(observer.Current.Identity?.ActorId == 88, "Map entry lost the connection's confirmed character ID");
+    observer.AcceptPersonalId(102); observer.Accept(20307, []);
+    observer.AcceptIdentity(new(101, 3, "OldCharacter", 99));
+    Check(observer.Current.Identity is null, "Character switch reused the old personal ID");
+    observer.AcceptIdentity(new(102, 3, "NewCharacter", 100));
+    Check(observer.Current.Identity?.ActorId == 100, "New initializer did not replace the old character");
+});
+Add("Local actor removal clears map state and rebinds only fresh matching public data", () =>
+{
+    var observer=new TwGameObserver(); observer.AcceptPersonalId(101); observer.AcceptIdentity(new(101,3,"Local",11));
+    observer.Accept(120412,Concert(7,101,"MML@T120C4;"),1000); observer.Accept(120692,PlayParts(11,7,0));
+    var generation=observer.Current.Generation; observer.Accept(20238,Id(11));
+    Check(observer.Current.Identity is null && observer.Current.Music is null && observer.Current.Concert is null && observer.Current.Generation!=generation,"Removed map retained stale playing state");
+    observer.AcceptIdentity(new(102,3,"Other",11));
+    Check(observer.Current.Identity is null,"Reused actor ID identified another character as local");
+    observer.AcceptIdentity(new(101,3,"Local",33));
+    Check(observer.Current.Identity?.ActorId==33 && observer.Current.Music is null,"Local actor did not recover or stale music survived");
+    observer.Reset("TCP gap"); observer.AcceptIdentity(new(101,3,"Local",44));
+    Check(observer.Current.Identity is null,"Stream reset retained an untrusted personal ID");
 });
 Add("Wrong host, foreign concert and duplicate identity never confirm membership", () =>
 {

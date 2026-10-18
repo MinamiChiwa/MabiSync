@@ -32,6 +32,14 @@ internal sealed class MemberRow(string id,Action<MemberRow>? selectionChanged=nu
     public string GroupText=>$"第 {Group} 组";
     public string OrderText=>Order.ToString();
     public string EnsembleRoleText=>EnsembleRole=="initiator"?"乐谱使用者":"参与者";
+    private bool _conductor;
+    public string OverlayOrder=>_ensemble?$"{Group} / {Order}":"—";
+    public string OverlayRole=>string.Join(" · ",new[]{Role,_conductor?"总指挥":null,_ensemble?EnsembleRoleText:null}.Where(value=>value is not null));
+    internal void UpdateOverlayRole(bool conductor)
+    {
+        if(_conductor==conductor)return;
+        _conductor=conductor;Changed(nameof(OverlayRole));
+    }
     private bool _selected=true;
     public bool Selected {get=>_selected;set{if(_selected==value)return;_selected=value;Changed(nameof(Selected));selectionChanged?.Invoke(this);}}
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -70,5 +78,7 @@ internal sealed class MemberRow(string id,Action<MemberRow>? selectionChanged=nu
         if(old._selected!=_selected)Changed(nameof(Selected));
         if(old.JoinState!=JoinState){Changed(nameof(JoinState));Changed(nameof(JoinBrush));Changed(nameof(JoinBackground));}
         if(old.JoinFeedback!=JoinFeedback)Changed(nameof(JoinFeedback));
+        if(old.Group!=Group || old.Order!=Order || oldEnsemble!=_ensemble)Changed(nameof(OverlayOrder));
+        if(old.Role!=Role || old.EnsembleRole!=EnsembleRole || oldEnsemble!=_ensemble)Changed(nameof(OverlayRole));
     }
 }
