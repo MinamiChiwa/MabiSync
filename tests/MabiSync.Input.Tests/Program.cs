@@ -101,6 +101,45 @@ Add("Input rechecks focus at dispatch and never activates an unrelated window", 
     Check(f.Executor.Execute(a, CancellationToken.None).Status == "failed", "Lost focus was ignored");
     Check(f.Platform.Events.Count == 0, "Sent input to a different foreground window");
 });
+Add("Music stop restores its prepared game window before sending a key or button", () =>
+{
+    foreach(var mode in new[]{"independent","ensemble"})foreach(var minimized in new[]{false,true})foreach(var button in new[]{false,true})
+    {
+        var f=new Fixture();var binding=button?(GameBinding)new ButtonBinding(200,100,1280,960,144):new KeyBinding(0x42);
+        f.Profile=f.Profile with{Independent=new(Stop:binding),Ensemble=new(Stop:binding)};
+        var stop=Action("stop",mode);Check(f.Executor.Prepare(stop).Ready,"Stop did not prepare");
+        f.Profile=f.Profile with{Window=Fixture.Window with{Handle=999}};
+        f.Platform.State=f.Platform.State with{Foreground=false,Visible=!minimized,Minimized=minimized,Client=minimized?new(0,0,0,0,144):f.Platform.State.Client};
+        var result=f.Executor.Execute(stop,CancellationToken.None);
+        Check(result.Status=="executed", "Background/minimized stop failed: "+result.Detail);
+        Check(f.Platform.Activated.Single()==Fixture.Window && f.Platform.State.Foreground,"Stop activated a changed UI selection instead of its prepared game");
+        Check(f.Platform.Events.SequenceEqual(button?new[]{"move:300:300","mouse:down","mouse:up"}:new[]{"key:66:down","key:66:up"}),"Stop sent incorrect or duplicate input");
+    }
+});
+Add("Stop activation failure, cancellation and identity mismatch send no input", () =>
+{
+    foreach(var failure in new[]{"denied","cancelled","identity","permission"})
+    {
+        var f=new Fixture();var stop=Action("stop","ensemble");Check(f.Executor.Prepare(stop).Ready,"Stop not prepared");
+        f.Platform.State=f.Platform.State with{Foreground=false};using var cancel=new CancellationTokenSource();
+        if(failure=="denied")f.Platform.DenyActivation=true;
+        if(failure=="cancelled")f.Platform.DuringActivation=()=>cancel.Cancel();
+        if(failure=="identity")f.Platform.State=f.Platform.State with{Identity=Fixture.Window with{ProcessStartedUtcTicks=9}};
+        if(failure=="permission")f.Platform.State=f.Platform.State with{InputPermission=false};
+        var result=f.Executor.Execute(stop,cancel.Token);
+        Check(result.Status==(failure=="cancelled"?"cancelled":"failed") && f.Platform.Events.Count==0,"Stop bypassed a failed activation or safety check");
+        if(failure is "identity" or "permission")Check(f.Platform.Activated.Count==0,"Stop attempted to activate an invalid or inaccessible target");
+    }
+});
+Add("Stop button calibration is rechecked after the game is restored", () =>
+{
+    var f=new Fixture();f.Profile=f.Profile with{Ensemble=new(Stop:new ButtonBinding(200,100,1280,960,144))};
+    var stop=Action("stop","ensemble");Check(f.Executor.Prepare(stop).Ready,"Stop not prepared");
+    f.Platform.State=f.Platform.State with{Foreground=false,Visible=false,Minimized=true};
+    f.Platform.RestoredArea=new(100,200,1280,960,192);
+    var result=f.Executor.Execute(stop,CancellationToken.None);
+    Check(f.Platform.Activated.Count==1 && result.Status=="failed" && f.Platform.Events.Count==0,"Restoring a changed DPI bypassed button calibration");
+});
 Add("Readiness accepts a minimized selected window and revalidates restored geometry before input", () =>
 {
     var f=new Fixture();f.Profile=f.Profile with{Ensemble=new(new ButtonBinding(200,100,1280,960,144),new KeyBinding(0x42))};
@@ -325,6 +364,14 @@ sealed class TestPlatform : IGameInputPlatform
     public GameWindowState State = new(Fixture.Window, new(100, 200, 1280, 960, 144), true, true, true);
     public List<string> Events = []; public HashSet<ushort> Held = []; public bool PointOwned = true;
     public ushort? FailKey; public bool FailRelease; public Action<ushort>? AfterKeyDown;
+    public List<GameWindowId> Activated=[];public bool DenyActivation;public Action? DuringActivation;
+    public ClientArea RestoredArea=new(100,200,1280,960,144);
+    public Task ActivateAsync(GameWindowId window,CancellationToken token=default)
+    {
+        Activated.Add(window);DuringActivation?.Invoke();token.ThrowIfCancellationRequested();
+        if(!DenyActivation)State=State with{Foreground=true,Visible=true,Minimized=false,Client=State.Minimized?RestoredArea:State.Client};
+        return Task.CompletedTask;
+    }
     public GameWindowState? Inspect(GameWindowId window) => State;
     public bool KeyIsDown(ushort key) => Held.Contains(key);
     public bool LeftButtonIsDown() => false;
