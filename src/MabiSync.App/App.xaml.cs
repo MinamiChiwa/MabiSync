@@ -36,7 +36,8 @@ public partial class App : Application
                     if (!File.Exists(Path.Combine(root, file))) throw new FileNotFoundException("Package component missing");
                 var catalogPath=Path.Combine(Directory.GetParent(root.TrimEnd(Path.DirectorySeparatorChar))!.FullName,"Config","乐器列表.txt");
                 var instruments=MabiSync.Core.InstrumentCatalog.Merge(File.ReadAllLines(catalogPath),Array.Empty<string>());
-                File.WriteAllText(report, JsonSerializer.Serialize(new { started = true, baseDirectory = root, instrumentCount=instruments.Count, wpf = typeof(Window).Assembly.GetName().Version?.ToString(), gameInputs = 0 }));
+                var version=System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(App).Assembly)?.InformationalVersion.Split('+')[0];
+                File.WriteAllText(report, JsonSerializer.Serialize(new { started = true, version, baseDirectory = root, instrumentCount=instruments.Count, wpf = typeof(Window).Assembly.GetName().Version?.ToString(), gameInputs = 0 }));
                 Shutdown(0);
             }
             catch (Exception error) { AppFaultLog.Record(error, "package-startup"); Shutdown(1); }

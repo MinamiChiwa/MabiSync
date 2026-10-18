@@ -6,7 +6,7 @@
     <AssemblyName>MabiSync</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/MabiSync.ico</ApplicationIcon>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <SatelliteResourceLanguages>zh-Hans;zh-Hant</SatelliteResourceLanguages>
   </PropertyGroup>
   <ItemGroup>

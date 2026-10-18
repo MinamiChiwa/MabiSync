@@ -32,7 +32,7 @@ internal static class Program
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         Dispatcher.CurrentDispatcher.BeginInvoke(async () =>
         {
-            try { await HeaderActions();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await GrowingRosterAndJoinerBindings(); await LongScoreDisplay(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
+            try { await HeaderActions();await UpdateUi();await CompactReadiness();await DefaultsPersistence();await WindowDiscovery();await TimingUi(); await SnapshotRace(); await RoomUi(); await GrowingRosterAndJoinerBindings(); await LongScoreDisplay(); await PhaseViews(); await ClosingCancelsBeforeCleanup(); await DisposedService(); FaultLogs(); if (args.Length > 1) { await LanUi(args[1]);await CommunityUi(args[1]);await RecoveryUi(args[1]);await OfflineCloseUi();await LiveRoom(args[1]); await EarlyEnsembleUi(args[1]); } }
             catch (Exception error) { _failed++; Console.WriteLine("FAIL " + Unwrap(error)); }
             finally { app.Shutdown(); Dispatcher.ExitAllFrames(); }
         });
@@ -62,18 +62,24 @@ internal static class Program
             Check(window.Topmost,"Window does not default to topmost");
             var pin=window.FindName("PinWindowButton") as Button;var privacy=window.FindName("CapturePrivacyButton") as Button;
             Check(pin is not null && privacy is not null && window.FindName("SponsorButton") is Button,"Header icon actions missing");
-            Check(pin!.ToolTip!.ToString()!.Contains("已开启") && privacy!.ToolTip!.ToString()!.Contains("已开启"),"Header toggle defaults are unclear");
+            var versionText=window.FindName("VersionText") as TextBlock;
+            var expectedVersion=_windowType.Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0];
+            Check(versionText is not null && versionText.Text==$"v{expectedVersion}" && window.Title.Contains(versionText.Text),"UI version must match the running application, including preview suffix");
+            Check(window.FindName("CheckUpdateButton") is Button { Content: "检查更新", IsEnabled: true }, "Manual GitHub update check is missing");
+            Check(pin!.ToolTip!.ToString()!.Contains("已开启") && privacy!.ToolTip!.ToString()!.Contains("已关闭"),"Recording compatibility does not default capture exclusion to off");
+            Check(privacy!.ToolTip!.ToString()!.Contains("NVIDIA"),"Capture toggle omits the recorder compatibility hint");
             pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!window.Topmost,"Pin button did not disable topmost");
             pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(window.Topmost,"Pin button did not enable topmost");
             new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
             var policy=Field<object>(window,"_windowCapturePolicy");
             var policyType=policy.GetType();
             var affinity=policyType.GetMethod("ReadAffinity")!;
-            if(OperatingSystem.IsWindowsVersionAtLeast(10,0,19041))Check((uint)affinity.Invoke(policy,[window])! == 0x11,"Capture privacy was not applied to the native window");
+            Check((uint)affinity.Invoke(policy,[window])! == 0,"Fresh window is unexpectedly excluded from recording");
+            privacy!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if(OperatingSystem.IsWindowsVersionAtLeast(10,0,19041))Check((uint)affinity.Invoke(policy,[window])! == 0x11,"Opt-in capture privacy was not applied");
             privacy!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check((uint)affinity.Invoke(policy,[window])! == 0,"Capture privacy did not turn off");
             Check(privacy.ToolTip!.ToString()!.Contains("已关闭"),"Disabled privacy hint is stale");
-            privacy!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             ((Button)window.FindName("SponsorButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var sponsor=Field<Window>(window,"_sponsorWindow");
             Check(sponsor.Owner==window && sponsor.Title.Contains("支持"),"Sponsor entry did not open owned secondary window");
@@ -81,10 +87,11 @@ internal static class Program
             ((Button)window.FindName("SponsorButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(ReferenceEquals(sponsor,Field<Window>(window,"_sponsorWindow")),"Sponsor clicks create duplicate windows");
             Check(window.Icon is not null && sponsor.Icon is not null,"Application windows lack product icon");
-            if(OperatingSystem.IsWindowsVersionAtLeast(10,0,19041))Check((uint)affinity.Invoke(policy,[sponsor])! == 0x11,"Sponsor dialog is not excluded from capture");
+            Check((uint)affinity.Invoke(policy,[sponsor])! == 0,"Secondary window unexpectedly blocks capture while hiding is off");
             privacy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Check((uint)affinity.Invoke(policy,[sponsor])! == 0,"Privacy disable did not reach existing secondary windows");
+            if(OperatingSystem.IsWindowsVersionAtLeast(10,0,19041))Check((uint)affinity.Invoke(policy,[sponsor])! == 0x11,"Privacy enable did not reach existing secondary windows");
             privacy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check((uint)affinity.Invoke(policy,[sponsor])! == 0,"Privacy disable did not clear capture protection from existing secondary windows");
             pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!sponsor.Topmost,"Unpin did not reach secondary window");
             pin.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(sponsor.Topmost,"Pin did not reach secondary window");
             var images=Environment.GetEnvironmentVariable("MABISYNC_UI_OUTPUT");if(images is not null){Directory.CreateDirectory(images);Render(sponsor,400,320,Path.Combine(images,"sponsor-dialog.png"));Render(window,1180,900,Path.Combine(images,"header-actions.png"));}
@@ -132,6 +139,23 @@ internal static class Program
             Console.WriteLine("PASS WPF compact role-specific readiness, instrument summary and persistent actions");
         }finally{await Close(window);}
     }
+    private static async Task UpdateUi()
+    {
+        var window=NewWindow();
+        try {
+            new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+            _windowType.GetMethod("ShowUpdate",Private)!.Invoke(window,[new ReleaseUpdate("0.1.0","9.0.0",true,new Uri(GitHubUpdates.Repository+"/releases/tag/v9.0.0"),[])]);
+            await Task.Delay(30);
+            var dialog=Field<Window>(window,"_updateWindow");
+            var panel=(StackPanel)dialog.Content;
+            Check(panel.Children.OfType<Button>().Any(b=>Equals(b.Content,"下载更新") && b.IsEnabled),"Update dialog omits explicit download consent");
+            Check(!Field<bool>(window,"_updating"),"Showing an available release began downloading automatically");
+            var images=Environment.GetEnvironmentVariable("MABISYNC_UI_OUTPUT");
+            if(images is not null){Directory.CreateDirectory(images);Render(dialog,480,400,Path.Combine(images,"update-dialog.png"));Render(window,780,700,Path.Combine(images,"version-header-narrow.png"));}
+            dialog.Close();
+        }finally{window.Close();}
+        Console.WriteLine("PASS WPF update dialog waits for explicit download and preserves the version header");
+    }
     private static async Task DefaultsPersistence()
     {
         var window=NewWindow();var path=Field<string>(window,"_settings");
@@ -141,12 +165,17 @@ internal static class Program
             ((ComboBox)window.FindName("ModeBox")).SelectedIndex=1;
             Check(((ComboBox)window.FindName("StartInputKind")).SelectedIndex==1,"Mode switching lost the uncalibrated button preference");
             ((ComboBox)window.FindName("StartInputKind")).SelectedIndex=0;
+            ((Button)window.FindName("CapturePrivacyButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Call(window,"SaveSettings");
         } finally {await Close(window);}
         var restored=(Window)Activator.CreateInstance(_windowType,Private,null,[path,false],null)!;
         try {
             Check(((ComboBox)restored.FindName("StartInputKind")).SelectedIndex==0,"Saved unbound shortcut preference was replaced by the new default");
             Check(((TextBox)restored.FindName("StopKeyBox")).Text=="Space","Saved stop binding was lost");
+            Check(Field<bool>(restored,"_hideFromCapture"),"Explicit capture hiding preference was not restored");
+            ((Button)restored.FindName("CapturePrivacyButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            using var saved=JsonDocument.Parse(File.ReadAllText(path));
+            Check(!saved.RootElement.GetProperty("hideFromCapture").GetBoolean(),"Disabling capture hiding did not save immediately");
         }finally{await Close(restored);}
         Console.WriteLine("PASS WPF fresh ensemble/button/Space defaults and binding preference persistence");
     }

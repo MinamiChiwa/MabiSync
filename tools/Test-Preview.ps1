@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $mabiPackage = (Resolve-Path -LiteralPath $Directory).Path
 $mabiApp = Join-Path $mabiPackage 'App'
 if(!(Test-Path -LiteralPath (Join-Path $mabiPackage 'Config/乐器列表.txt') -PathType Leaf)){throw 'Missing user instrument catalog'}
-$mabiRequired = @('MabiSync.exe','App/MabiSync.dll','App/MabiSync.runtimeconfig.json','App/hostfxr.dll','App/coreclr.dll','App/PresentationFramework.dll','App/runtime/node.exe','App/Service/server/index.js','App/Service/server/room-server.js','App/Service/server/ensemble-observation.js','App/Service/node_modules/ws/package.json','App/Service/node_modules/ws/LICENSE','Docs/THIRD-PARTY/node-LICENSE.txt','Docs/使用说明.txt','App/package-manifest.json')
+$mabiRequired = @('MabiSync.exe','App/MabiSync.exe','App/bootstrap-version.txt','App/MabiSync.dll','App/MabiSync.runtimeconfig.json','App/hostfxr.dll','App/coreclr.dll','App/PresentationFramework.dll','App/runtime/node.exe','App/Service/server/index.js','App/Service/server/room-server.js','App/Service/server/ensemble-observation.js','App/Service/node_modules/ws/package.json','App/Service/node_modules/ws/LICENSE','Docs/THIRD-PARTY/node-LICENSE.txt','Docs/使用说明.txt','App/package-manifest.json')
 foreach ($mabiRelative in $mabiRequired) {
     if (!(Test-Path -LiteralPath (Join-Path $mabiPackage $mabiRelative) -PathType Leaf)) { throw ('Missing package file: '+$mabiRelative) }
 }

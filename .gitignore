@@ -19,6 +19,7 @@ settings.json
 .env.*
 conversations/
 transcripts/
+Updates/
 *.pcapng.gz
 *.mp4
 *.mkv
