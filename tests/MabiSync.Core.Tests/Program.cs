@@ -6,6 +6,14 @@ void Check(bool condition, string message) { if (!condition) throw new InvalidOp
 void Near(double actual, double expected, double tolerance = .000001) => Check(Math.Abs(actual - expected) < tolerance, $"Expected {expected}, received {actual}");
 void Add(string name, Action run) => tests.Add((name, () => { run(); return Task.CompletedTask; }));
 
+Add("Tail hold accepts zero and millisecond precision without changing score duration",()=>{
+    foreach(var (text,ms) in new[]{("0",0L),("1",1000L),("1.25",1250L),("0.001",1L),("10",10000L)})
+        Check(MusicTailText.ParseMilliseconds(text)==ms,"Incorrect tail hold");
+    foreach(var text in new[]{"-1","10.001","0.0001","1,5","NaN",""}){
+        try{MusicTailText.ParseMilliseconds(text);throw new InvalidOperationException("Invalid tail accepted");}catch(FormatException){}
+    }
+});
+
 Add("Low delay clock samples use a stable median instead of following one noisy minimum",()=>{
     var local=new ManualClock();var clock=new RoomClock(local);
     foreach(var offset in new[]{1000d,1001,999,1000,1000,1020}){

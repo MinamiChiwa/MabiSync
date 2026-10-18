@@ -49,6 +49,7 @@ public sealed partial class RoomClient : IAsyncDisposable
     public bool Connected => _connected && !_restoringRoom;
     public bool SupportsGameObservation { get; private set; }
     public bool SupportsFirstCycleStop { get; private set; }
+    public bool SupportsFirstCycleTail { get; private set; }
     public bool SupportsRosterEditing { get; private set; }
     public string Endpoint { get; private set; } = "ws://127.0.0.1:3132/";
     public SessionIdentity? Session => Volatile.Read(ref _session);
@@ -292,6 +293,7 @@ public sealed partial class RoomClient : IAsyncDisposable
                 if (root.GetProperty("product").GetString() != "MabiSync" || root.GetProperty("protocolVersion").GetInt32() != 1) throw new InvalidDataException("此地址不是兼容的 MabiSync 服务器，请检查地址，或更新工具与服务器。");
                 SupportsGameObservation = root.TryGetProperty("features", out var features) && features.TryGetProperty("gameObservation", out var observation) && observation.ValueKind == JsonValueKind.Number && observation.GetInt32() == 1;
                 SupportsFirstCycleStop = features.ValueKind == JsonValueKind.Object && features.TryGetProperty("firstCycleStop", out var cycle) && cycle.ValueKind == JsonValueKind.Number && cycle.GetInt32() == 1;
+                SupportsFirstCycleTail = features.ValueKind == JsonValueKind.Object && features.TryGetProperty("firstCycleTail", out var tail) && tail.ValueKind == JsonValueKind.Number && tail.TryGetInt32(out var tailVersion) && tailVersion == 1;
                 SupportsRosterEditing=features.ValueKind==JsonValueKind.Object && features.TryGetProperty("rosterEditing",out var edit) && edit.ValueKind==JsonValueKind.Number && edit.GetInt32()==1;
                 var epoch = root.GetProperty("serverEpoch").GetString()!;
                 if (!Guid.TryParse(epoch, out _)) throw new InvalidDataException("服务器返回的信息不完整，请重新连接。");

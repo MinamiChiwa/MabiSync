@@ -70,6 +70,7 @@ try {
   assert.equal(health.features?.gameObservation, 1);
   assert.equal(health.features?.ensembleRoster, 1);
   assert.equal(health.features?.firstCycleStop, 1);
+  assert.equal(health.features?.firstCycleTail, 1);
   assert.equal(health.features?.rosterEditing, 1);
   assert.equal(health.features?.roomClosure, 1);
   assert.equal(health.features?.adaptiveTiming, 2);

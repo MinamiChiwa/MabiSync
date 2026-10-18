@@ -88,6 +88,8 @@ public partial class MainWindow
             overlay.ScoreProgress.Value=Math.Clamp(position/seconds,0,1);
             overlay.ScoreProgress.Visibility=Visibility.Visible;
             overlay.ProgressText.Text=$"{Math.Min(position,seconds):0.0} / {seconds:0.###} 秒 · 第 {cycle:0} 轮 · 估计进度";
+            if(ending && HoldingTail(performance))
+                overlay.ProgressText.Text=$"尾音保留 · {Math.Max(0,StopRemainingMilliseconds(performance.GetProperty("stopAction"))/1000):0.0} 秒后停止";
             return;
         }
     }
