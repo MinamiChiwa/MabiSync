@@ -51,6 +51,7 @@ tests.Add(("A failed local service check never launches a public process", async
     Check(tunnel.State.Status == "error" && launcher.Starts == 0, "Started a tunnel for an unknown local service");
 }));
 var failed = 0;
+ReleaseChecks.AddTo(tests);
 tests.Add(("A living tunnel with unreachable public endpoint withdraws its invitation and reports failure", async () =>
 {
     var constructor=typeof(QuickTunnel).GetConstructors().Single();

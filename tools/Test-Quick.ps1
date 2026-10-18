@@ -16,6 +16,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Input boundary checks failed" }
     & dotnet run --project tests/MabiSync.Network.Tests -c Release
     if ($LASTEXITCODE -ne 0) { throw "Public connection lifecycle checks failed" }
+    & "$PSScriptRoot/Test-OnlineUpdate.ps1"
+    if ($LASTEXITCODE -ne 0) { throw "Online update bootstrap checks failed" }
     & node --test tests/server.test.mjs tests/ensemble-server.test.mjs tests/client.integration.mjs tests/client.edge.integration.mjs tests/ui-contract.test.mjs tests/app.integration.mjs tests/timing.integration.mjs
     if ($LASTEXITCODE -ne 0) { throw "Room/client checks failed" }
 }

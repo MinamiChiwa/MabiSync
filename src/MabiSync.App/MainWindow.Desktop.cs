@@ -8,11 +8,14 @@ namespace MabiSync.App;
 public partial class MainWindow
 {
     private readonly WindowCapturePolicy _windowCapturePolicy=new();
-    private bool _hideFromCapture=true;
+    private bool _hideFromCapture;
     private Window? _sponsorWindow;
 
     private void InitializeWindowActions()
     {
+        VersionText.Text=$"v{ApplicationVersion}";
+        Title=$"MabiSync · v{ApplicationVersion}";
+        InitializeUpdates();
         Topmost=true;
         RefreshWindowActions();
         SourceInitialized+=(_,_)=>ApplyCapturePolicy();
@@ -21,7 +24,7 @@ public partial class MainWindow
     {
         SetHeaderToggle(PinWindowButton,Topmost,Topmost?"置顶已开启；点击取消置顶":"置顶已关闭；点击置顶");
         SetHeaderToggle(CapturePrivacyButton,_hideFromCapture,
-            (_hideFromCapture?"录屏隐藏已开启；点击关闭":"录屏隐藏已关闭；点击开启")+"。支持 Windows 10 2004 及以上的兼容截图、录屏与屏幕共享软件。部分采集方式可能仍会显示窗口。");
+            (_hideFromCapture?"录屏隐藏已开启；点击关闭":"录屏隐藏已关闭；点击开启")+"。开启后可能导致 NVIDIA 录制无法启动，遇到时请关闭此项再重试。需要 Windows 10 2004 或更高版本及兼容的采集软件。");
     }
     private void SetHeaderToggle(Button button,bool enabled,string hint)
     {
@@ -47,7 +50,10 @@ public partial class MainWindow
             _hideFromCapture=previous;
             TryApplyCapturePolicy(out _);
             Feedback(error!,FeedbackTone.Warning);
-        }else Feedback(_hideFromCapture?"已开启录屏隐藏。":"已关闭录屏隐藏。",FeedbackTone.Info);
+        }else {
+            Feedback(_hideFromCapture?"已开启录屏隐藏。若 NVIDIA 无法开始录制，请关闭此项。":"已关闭录屏隐藏，可重试 NVIDIA 录制。",FeedbackTone.Info);
+            SaveSettings();
+        }
         RefreshWindowActions();
     }
     private bool TryApplyCapturePolicy(out string? error)
@@ -63,6 +69,7 @@ public partial class MainWindow
             _hideFromCapture=false;
             TryApplyCapturePolicy(out _);
             Feedback(error!,FeedbackTone.Warning);
+            SaveSettings();
         }
         RefreshWindowActions();
     }

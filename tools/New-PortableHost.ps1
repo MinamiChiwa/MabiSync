@@ -4,12 +4,14 @@ $ErrorActionPreference = 'Stop'
 $mabiAppDirectory = (Resolve-Path -LiteralPath $ApplicationDirectory).Path
 $mabiDotnetRoot = Split-Path -Parent (Get-Command dotnet -ErrorAction Stop).Source
 $mabiSdkVersion = (& dotnet --version).Trim()
-$mabiHostModel = Join-Path $mabiDotnetRoot ('sdk/'+$mabiSdkVersion+'/Microsoft.NET.HostModel.dll')
-Add-Type -Path $mabiHostModel
-$mabiHostPack = Get-ChildItem -LiteralPath (Join-Path $mabiDotnetRoot 'packs/Microsoft.NETCore.App.Host.win-x64') -Directory |
-    Where-Object { $_.Name -match '^8\.0\.\d+$' } | Sort-Object { [Version]$_.Name } -Descending | Select-Object -First 1
-if (!$mabiHostPack) { throw 'The .NET 8 Windows x64 apphost pack is required' }
-$mabiHostTemplate = Join-Path $mabiHostPack.FullName 'runtimes/win-x64/native/apphost.exe'
-# Use the SDK host writer, preserving application resources and the native GUI
-# entry point while locating both the managed application and runtime in App/.
-[Microsoft.NET.HostModel.AppHost.HostWriter]::CreateAppHost($mabiHostTemplate, [IO.Path]::GetFullPath($OutputPath), 'App/MabiSync.dll', $true, (Join-Path $mabiAppDirectory 'MabiSync.dll'), $false)
+$mabiCompiler = Join-Path $mabiDotnetRoot ('sdk/'+$mabiSdkVersion+'/Roslyn/bincore/csc.dll')
+$mabiFramework = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319'
+if (!(Test-Path -LiteralPath $mabiCompiler)) { throw 'The .NET SDK C# compiler is required to build the portable bootstrap' }
+$mabiSource = Join-Path $PSScriptRoot '../src/MabiSync.Bootstrap/Program.cs'
+$mabiIcon = Join-Path $PSScriptRoot '../src/MabiSync.App/Assets/MabiSync.ico'
+$mabiArguments=@($mabiCompiler,'/nologo','/noconfig','/nostdlib+','/deterministic+','/target:winexe','/platform:x64','/optimize+',('/pathmap:'+[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))+'=/_/'))
+foreach($mabiReference in @('mscorlib.dll','System.dll','System.Core.dll','System.Web.Extensions.dll','System.Windows.Forms.dll')){$mabiArguments+=('/reference:'+(Join-Path $mabiFramework $mabiReference))}
+$mabiArguments+=@("/win32icon:$mabiIcon","/out:$([IO.Path]::GetFullPath($OutputPath))",[IO.Path]::GetFullPath($mabiSource))
+& dotnet @mabiArguments
+if ($LASTEXITCODE -ne 0) { throw 'Portable bootstrap compilation failed' }
+[IO.File]::WriteAllText((Join-Path $mabiAppDirectory 'bootstrap-version.txt'),'1')

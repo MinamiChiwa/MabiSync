@@ -317,6 +317,8 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(File.ReadAllText(_settings)); var root = doc.RootElement;
             EndpointBox.Text = root.GetProperty("endpoint").GetString() ?? EndpointBox.Text;
             NicknameBox.Text = root.GetProperty("nickname").GetString() ?? NicknameBox.Text;
+            if(root.TryGetProperty("hideFromCapture",out var captureHidden) && captureHidden.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                _hideFromCapture=captureHidden.GetBoolean();
             if(root.TryGetProperty("publicProvider",out var provider))PublicProviderBox.SelectedIndex=provider.GetString() switch {"lan"=>1,"cloudflare"=>0,_=>2};
             if(root.TryGetProperty("lanEndpoint",out var lan) && lan.ValueKind==JsonValueKind.String) LanAddressBox.Text=lan.GetString()??LanAddressBox.Text;
             if (root.TryGetProperty("timingOffsetMs", out var adjustment) && adjustment.TryGetInt32(out var offset) && offset is >= -2000 and <= 2000) TimingOffsetSlider.Value = offset;
@@ -344,7 +346,7 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_settings)!);
             var temp = _settings + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
+            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), hideFromCapture = _hideFromCapture, countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
             File.Move(temp, _settings, true);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { MessageText.Text = "设置未能保存：" + error.Message; }

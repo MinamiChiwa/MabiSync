@@ -1,5 +1,5 @@
 #requires -Version 7.4
-param([string]$NodePath, [string]$CloudflaredPath, [string]$NodeLicensePath, [string]$CloudflaredLicensePath, [string]$Label='0.1.4', [switch]$SkipChecks, [switch]$Release)
+param([string]$NodePath, [string]$CloudflaredPath, [string]$NodeLicensePath, [string]$CloudflaredLicensePath, [string]$Label='0.1.5', [switch]$SkipChecks, [switch]$Release, [string[]]$UpdateBaselineDirectory=@())
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
@@ -56,7 +56,6 @@ try {
         foreach($mabiLicense in $mabiLicenses){Copy-Item -LiteralPath $mabiLicense.FullName -Destination (Join-Path $mabiThirdParty ($mabiFramework.name+'-'+$mabiLicense.Name))}
     }
     & "$PSScriptRoot/New-PortableHost.ps1" -ApplicationDirectory $mabiApp -OutputPath (Join-Path $mabiOutput 'MabiSync.exe')
-    Remove-Item -LiteralPath (Join-Path $mabiApp 'MabiSync.exe')
     New-Item -ItemType Directory -Path (Join-Path $mabiOutput 'Config') | Out-Null
     Copy-Item -LiteralPath (Join-Path $mabiApp 'Config/乐器列表.txt') -Destination (Join-Path $mabiOutput 'Config/乐器列表.txt')
     Remove-Item -LiteralPath (Join-Path $mabiApp 'Config/乐器列表.txt')
@@ -78,6 +77,7 @@ try {
     [IO.Compression.ZipFile]::CreateFromDirectory($mabiOutput,$mabiZip,[IO.Compression.CompressionLevel]::SmallestSize,$true)
     $mabiZipHash=(Get-FileHash -LiteralPath $mabiZip -Algorithm SHA256).Hash
     ($mabiZipHash+'  '+[IO.Path]::GetFileName($mabiZip)) | Set-Content -LiteralPath ($mabiZip+'.sha256') -Encoding ascii
+    if($Release){ & "$PSScriptRoot/New-UpdateAssets.ps1" -Directory $mabiOutput -Version $Label -PortableZip $mabiZip -BaselineDirectory $UpdateBaselineDirectory }
     $mabiLatest=if($Release){'outputs/latest-release.json'}else{'outputs/latest-preview.json'}
     @{ directory=$mabiOutput; zip=$mabiZip; sha256=$mabiZipHash; label=$Label; packageChecked=$true; cleanMachineLaunchVerified=$false } | ConvertTo-Json | Set-Content -LiteralPath $mabiLatest -Encoding utf8
     Write-Output ('Preview package: '+$mabiZip)
