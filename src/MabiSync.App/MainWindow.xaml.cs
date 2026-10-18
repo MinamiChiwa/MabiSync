@@ -141,6 +141,13 @@ public partial class MainWindow : Window
         var musicVisibility = emote ? Visibility.Collapsed : Visibility.Visible;
         LeaderControls.Visibility = StopControls.Visibility = StopButton.Visibility = ContinueButton.Visibility = musicVisibility;
         DurationControls.Visibility = SelectedStopRule == MusicStopRule.Duration ? Visibility.Visible : Visibility.Collapsed;
+        var tailRule = active && performance!.Value.TryGetProperty("stopRule",out var activeRule) ? activeRule.GetString()=="first-cycle" : SelectedStopRule==MusicStopRule.FirstCycle;
+        TailControls.Visibility = !emote && tailRule ? Visibility.Visible : Visibility.Collapsed;
+        var editTail = !active && (isHost || ViewSession is null);
+        TailHoldBox.Visibility = TailHoldUnit.Visibility = editTail ? Visibility.Visible : Visibility.Collapsed;
+        TailRoundText.Visibility = editTail ? Visibility.Collapsed : Visibility.Visible;
+        TailRoundText.Text = active ? $"本轮 {TailHoldMilliseconds(performance!.Value)/1000m:0.###} 秒" : "由房主设置";
+        TailHoldBox.ToolTip = _musicTailHoldError ?? "0–10 秒；由房主设置，全员共用";
         StartButton.Content = "开始";
         StopButton.Content = "全员停止";
         LocalStopButton.Content = emote ? "取消本机任务" : "本机停止";
@@ -161,6 +168,7 @@ public partial class MainWindow : Window
         StartButton.IsEnabled &= _countdownError is null;
         StartButton.IsEnabled &= _rosterEdits==0;
         StartButton.IsEnabled &= emote || SelectedStopRule != MusicStopRule.Duration || _musicDurationError is null;
+        StartButton.IsEnabled &= emote || SelectedStopRule != MusicStopRule.FirstCycle || _musicTailHoldError is null;
         CancelButton.IsEnabled &= beforeStart;
         StopButton.IsEnabled &= active;
         var pendingStart = active ? _scheduler.LocalDeadline(performance!.Value.GetProperty("startAction").GetProperty("id").GetString()!) : null;
@@ -277,6 +285,7 @@ public partial class MainWindow : Window
         if(participants.Length==0)throw new InvalidOperationException("请先选择本轮参与者。");
         var waiting=_members.Where(m=>m.Selected && m.Id!=ViewSession?.MemberId && !m.Ready).Select(m=>m.Nickname).ToArray();
         if(waiting.Length>0)throw new InvalidOperationException("等待就绪："+string.Join("、",waiting)+"。");
+        var tailHoldMs = mode!="emote" && SelectedStopRule==MusicStopRule.FirstCycle ? PrepareTailHold() : 0;
         MessageText.Text="正在同步成员时钟……";
         await _client.RefreshClockAsync();
         if(!_inputRouter.UseSimulation && participants.Contains(ViewSession?.MemberId))await _gamePlatform.ActivateAsync(SelectedWindow??throw new InvalidOperationException("请先选择游戏窗口。"),_calibrationCancellation.Token);
@@ -293,7 +302,7 @@ public partial class MainWindow : Window
         else if (mode != "emote" && SelectedStopRule == MusicStopRule.FirstCycle)
         {
             if (!_client.SupportsFirstCycleStop) throw new InvalidOperationException("当前服务器版本不支持一轮停止，请房主更新服务器后重新建房。");
-            await _client.SendAsync(new { type = "prepare", mode, countdownMs, participantIds = participants, stopRule = "first-cycle" });
+            await _client.SendAsync(new { type = "prepare", mode, countdownMs, participantIds = participants, stopRule = "first-cycle", tailHoldMs });
             MessageText.Text = "等待识别总指挥本轮的乐谱，识别后会安排全员停止。";
         }
         else
@@ -311,7 +320,7 @@ public partial class MainWindow : Window
     {
         var dialog = new SaveFileDialog { Filter = "JSON 诊断|*.json", FileName = "mabisync-diagnostics.json" };
         if (dialog.ShowDialog(this) != true) return;
-        try { File.WriteAllText(dialog.FileName, JsonSerializer.Serialize(new { product = "MabiSync", version = typeof(App).Assembly.GetName().Version?.ToString(), simulatedOnly = _receipts.All(r => r.Simulated), os = Environment.OSVersion.VersionString, clock = _roomClock.Estimate, faults = AppFaultLog.ReadRecent(), receipts = _receipts.Select(r => new { r.Status, r.Simulated, r.GameResponseVerified, r.AppliedTimingOffsetMs, deviationMs = r.ActualLocalMs - r.PlannedLocalMs }) }, new JsonSerializerOptions { WriteIndented = true })); MessageText.Text = "已导出诊断。"; }
+        try { File.WriteAllText(dialog.FileName, JsonSerializer.Serialize(new { product = "MabiSync", version = typeof(App).Assembly.GetName().Version?.ToString(), simulatedOnly = _receipts.All(r => r.Simulated), os = Environment.OSVersion.VersionString, clock = _roomClock.Estimate, faults = AppFaultLog.ReadRecent(), roundTiming = _roundTimingDiagnostics.Values, receipts = _receipts.Select(r => new { r.Status, r.Simulated, r.GameResponseVerified, r.AppliedTimingOffsetMs, deviationMs = r.ActualLocalMs - r.PlannedLocalMs }) }, new JsonSerializerOptions { WriteIndented = true })); MessageText.Text = "已导出诊断。"; }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { MessageText.Text = error.Message; }
     }
     private void LoadSettings()
@@ -333,6 +342,8 @@ public partial class MainWindow : Window
             { _countdownMs = milliseconds; CountdownBox.Text = (milliseconds / 1000m).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture); }
             if (root.TryGetProperty("musicDurationMs", out var duration) && duration.TryGetInt64(out var durationMs) && durationMs is >= 1 and <= 86400000)
             { _musicDurationMs = durationMs; DurationBox.Text = (durationMs / 1000m).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture); }
+            if (root.TryGetProperty("musicTailHoldMs", out var tail) && tail.TryGetInt64(out var tailMs) && tailMs is >= 0 and <= 10000)
+            { _musicTailHoldMs = tailMs; TailHoldBox.Text = (tailMs / 1000m).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture); }
             var stopRule = root.TryGetProperty("musicStopRule", out var rule) && rule.ValueKind == JsonValueKind.String ? rule.GetString() : null;
             int? legacyChoice = root.TryGetProperty("musicStopChoice", out var stopChoice) && stopChoice.TryGetInt32(out var choice) ? choice : null;
             StopChoice.SelectedIndex = MusicStopSettings.Restore(stopRule, legacyChoice) switch { MusicStopRule.Duration => 1, MusicStopRule.FirstCycle => 2, _ => 0 };
@@ -353,7 +364,7 @@ public partial class MainWindow : Window
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_settings)!);
             var temp = _settings + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), hideFromCapture = _hideFromCapture, overlayOpacity = _informationOpacity, countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
+            File.WriteAllText(temp, JsonSerializer.Serialize(new { endpoint = EndpointBox.Text.Trim(), publicProvider=SelectedProvider, lanEndpoint=LanAddressBox.Text.Trim(), nickname = NicknameBox.Text.Trim(), hideFromCapture = _hideFromCapture, overlayOpacity = _informationOpacity, countdownMs = _countdownMs, timingOffsetMs = TimingOffsetMs, musicDurationMs = _musicDurationMs, musicTailHoldMs = _musicTailHoldMs, musicStopRule = MusicStopSettings.Persist(SelectedStopRule), musicStopChoice = SelectedStopRule == MusicStopRule.Duration ? 2 : 1, bindings = _modeBindings, startInputKinds = _startInputKinds }));
             File.Move(temp, _settings, true);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { MessageText.Text = "设置未能保存：" + error.Message; }

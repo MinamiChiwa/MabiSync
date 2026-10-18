@@ -635,10 +635,11 @@ test('moving a live identity to a second socket reports the interrupted input ow
   assert.equal(state.room.performance.interruption?.source, 'tool-session-replaced');
 });
 
-test('first-cycle stop is prepared after leader capture, all acknowledge it, and duplicates cannot move it', async t => {
+for(const leaderOffset of [0,-500,500])test(`first-cycle tail is added once with leader offset ${leaderOffset} and duplicates cannot move it`, async t => {
   const {client}=await setup(t); const host=await client(),other=await client();
   await host.create(); await other.join(host.identity.code); await host.ready(); await other.ready();
-  host.send({type:'prepare',mode:'independent',countdownMs:1000,stopRule:'first-cycle',participantIds:[host.identity.memberId,other.identity.memberId]});
+  host.send({type:'configure-input',capabilities:{simulation:true,canStart:true,canStop:true,timingOffsetMs:leaderOffset}});
+  host.send({type:'prepare',mode:'independent',countdownMs:1000,stopRule:'first-cycle',tailHoldMs:1250,participantIds:[host.identity.memberId,other.identity.memberId]});
   const {action}=await host.next('prepare-action'); await other.next('prepare-action');
   host.send({type:'action-ready',actionId:action.id,ready:true}); other.send({type:'action-ready',actionId:action.id,ready:true});
   await host.next('commit-action'); await other.next('commit-action');
@@ -646,16 +647,18 @@ test('first-cycle stop is prepared after leader capture, all acknowledge it, and
   const report={type:'game-observation',sessionId:action.sessionId,generation:'cycle',sequence:1,status:'identified',
     identity:{characterId:'101',realmId:3,nickname:'Leader'},music:{concertId:'7',hostCharacterId:'101',performerCharacterId:'101',title:'Fixture',
       isLoop:true,selectedChannels:[0],scoreSha256:'a'.repeat(64),wholeScoreDurationSeconds:2,selectedDurationSeconds:2,issue:null,
-      timingSource:'tw-receive-offset-v1',estimatedStartServerMs:action.targetServerMs+100}};
+      timingSource:'tw-receive-offset-v1',estimatedStartServerMs:action.targetServerMs+leaderOffset+100}};
   host.send(report);
   const stop=(await host.next('prepare-action')).action; await other.next('prepare-action');
-  assert.equal(stop.kind,'stop'); assert.equal(stop.targetServerMs,action.targetServerMs+2100);
+  assert.equal(stop.kind,'stop'); assert.equal(stop.targetServerMs,action.targetServerMs+3350);
   host.send({type:'action-ready',actionId:stop.id,ready:true});
   host.send({type:'sync',id:997,t1:1}); await host.next('sync'); assert.equal(host.pending('commit-action').length,0);
   other.send({type:'action-ready',actionId:stop.id,ready:true}); await host.next('commit-action'); await other.next('commit-action');
   host.send({...report,sequence:2}); host.send({type:'sync',id:998,t1:1}); await host.next('sync');
   assert.equal(host.pending('prepare-action').length,0);
   const state=host.pending('state').at(-1).room.performance;
+  assert.equal(state.tailHoldMs,1250);
+  assert.equal(state.cycleScore.estimatedEndServerMs,action.targetServerMs+leaderOffset+2100);
   assert.equal(state.stopTimingSource,'leader-capture-estimate'); assert.equal(state.firstCycleTimingVerified,false);
   host.send({...report,sequence:3,generation:'new-connection',music:{...report.music,concertId:'8'}});
   await host.wait(m=>m.type==='state' && m.room.performance?.phase==='interrupted');
@@ -665,6 +668,18 @@ test('first-cycle stop is prepared after leader capture, all acknowledge it, and
   host.send({type:'decide',decision:'continue'});
   await host.wait(m=>m.type==='state' && m.room.performance?.phase==='performing');
   host.send({type:'stop-all'}); await host.next('stop-now');
+});
+
+test('tail hold is bounded and only applies to first-cycle music',async t=>{
+  const {client}=await setup(t);const host=await client();await host.create();await host.ready();
+  for(const tailHoldMs of [-1,10001,1.5,'1000',null]){
+    host.send({type:'prepare',mode:'independent',stopRule:'first-cycle',tailHoldMs,participantIds:[host.identity.memberId]});
+    assert.equal((await host.next('error')).code,'BAD_TAIL_HOLD');
+  }
+  host.send({type:'prepare',mode:'emote',tailHoldMs:1000,participantIds:[host.identity.memberId]});
+  assert.equal((await host.next('error')).code,'STOP_NOT_APPLICABLE');
+  host.send({type:'prepare',mode:'independent',stopRule:'duration',stopAfterMs:5000,tailHoldMs:1000,participantIds:[host.identity.memberId]});
+  assert.equal((await host.next('error')).code,'BAD_TAIL_HOLD');
 });
 
 test('first-cycle ignores other members, old rounds, old concerts and an unconfirmed start', async t => {

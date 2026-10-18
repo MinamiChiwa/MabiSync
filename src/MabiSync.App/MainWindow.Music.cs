@@ -9,6 +9,54 @@ public partial class MainWindow
 {
     private string? _musicDurationError, _consumedMusicRound;
     private long _musicDurationMs = 30000;
+    private long _musicTailHoldMs = 1000;
+    private string? _musicTailHoldError;
+    private readonly Dictionary<string, object> _roundTimingDiagnostics = [];
+    private void RememberRoundTiming(JsonElement? performance)
+    {
+        if(performance is not {ValueKind:JsonValueKind.Object} p)return;
+        var id=p.GetProperty("id").GetString()!;
+        var start=p.GetProperty("startAction").GetProperty("targetServerMs").GetDouble();
+        double? end=null, duration=null, stop=null;
+        if(p.TryGetProperty("cycleScore",out var score) && score.ValueKind==JsonValueKind.Object){
+            if(score.TryGetProperty("estimatedEndServerMs",out var e) && e.TryGetDouble(out var endpoint))end=endpoint;
+            if(score.TryGetProperty("durationSeconds",out var d) && d.TryGetDouble(out var seconds))duration=seconds;
+        }
+        if(p.TryGetProperty("stopAction",out var action) && action.ValueKind==JsonValueKind.Object)stop=action.GetProperty("targetServerMs").GetDouble();
+        _roundTimingDiagnostics[id]=new {
+            mode=p.GetProperty("mode").GetString(),phase=p.GetProperty("phase").GetString(),
+            stopRule=p.TryGetProperty("stopRule",out var rule)?rule.GetString():null,
+            tailHoldMs=TailHoldMilliseconds(p), scoreDurationSeconds=duration,
+            estimatedOnsetAfterScheduledStartMs=end-duration*1000-start,
+            scoreEndAfterScheduledStartMs=end-start,stopAfterScheduledStartMs=stop-start,
+            stopTimingSource=p.TryGetProperty("stopTimingSource",out var source)?source.GetString():null,
+            cycleStopStatus=p.TryGetProperty("cycleStopStatus",out var status)?status.GetString():null
+        };
+        while(_roundTimingDiagnostics.Count>8)_roundTimingDiagnostics.Remove(_roundTimingDiagnostics.Keys.First());
+    }
+    private void MusicTailChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_uiReady || _closing) return;
+        try { _musicTailHoldMs = MusicTailText.ParseMilliseconds(TailHoldBox.Text); _musicTailHoldError = null; SaveSettings(); }
+        catch (FormatException error) { _musicTailHoldError = error.Message; }
+        Refresh();
+    }
+    private long PrepareTailHold()
+    {
+        var milliseconds=MusicTailText.ParseMilliseconds(TailHoldBox.Text);
+        if(milliseconds>0 && !_client.SupportsFirstCycleTail)
+            throw new InvalidOperationException("当前房间服务器尚未支持尾音保留，请更新房间服务后重建房间。临时测试可使用新版工具的局域网或 Cloudflare 建房。");
+        return milliseconds;
+    }
+    private static long TailHoldMilliseconds(JsonElement performance) =>
+        performance.TryGetProperty("tailHoldMs",out var tail) && tail.TryGetInt64(out var ms) && ms is >=0 and <=10000 ? ms : 0;
+    private double StopRemainingMilliseconds(JsonElement stop) =>
+        _scheduler.LocalDeadline(stop.GetProperty("id").GetString()!) is { } deadline ? deadline-_clock.NowMs :
+        stop.GetProperty("targetServerMs").GetDouble()+TimingOffsetMs-(_roomClock.ServerNowMs??0);
+    private bool HoldingTail(JsonElement performance) => TailHoldMilliseconds(performance)>0 &&
+        performance.TryGetProperty("cycleScore",out var score) && score.ValueKind==JsonValueKind.Object &&
+        score.TryGetProperty("estimatedEndServerMs",out var end) && end.ValueKind==JsonValueKind.Number &&
+        _roomClock.ServerNowMs is { } now && now>=end.GetDouble();
     private void MusicDurationChanged(object sender, TextChangedEventArgs e)
     {
         if (!_uiReady || _closing) return;
@@ -24,8 +72,9 @@ public partial class MainWindow
     });
     private void RefreshMusicStatus(JsonElement? performance)
     {
+        RememberRoundTiming(performance);
         LeaderPurposeText.Text=SelectedStopRule switch {
-            MusicStopRule.FirstCycle=>"按总指挥的乐谱估算一轮结束时间，全员届时停止。总指挥提前结束时会提醒房主。各组仍由自己的乐谱使用者开始。",
+            MusicStopRule.FirstCycle=>"按总指挥的乐谱估算一轮终点，保留尾音后全员停止。尾音保留由房主设置；总指挥提前结束时会提醒房主。",
             MusicStopRule.Duration=>"显示总指挥的乐谱；总指挥提前结束时可通知房主。全员按指定时长停止。",
             _=>"显示总指挥的乐谱；总指挥提前结束时可通知房主。何时全员停止由房主决定。"
         };
@@ -57,7 +106,7 @@ public partial class MainWindow
         var committed = !value.TryGetProperty("stopCommitted",out var sc) || sc.GetBoolean();
         ContinueButton.Content = hasStop && committed ? "继续，按原计划停止" : "继续，稍后手动停止";
         var ending = hasStop
-            ? !committed ? "正在确认各成员能否停止演奏" : $"距离本机停止还有 {Math.Max(0, (_scheduler.LocalDeadline(stop.GetProperty("id").GetString()!) is { } deadline ? deadline - _clock.NowMs : stop.GetProperty("targetServerMs").GetDouble() + TimingOffsetMs - (now ?? 0)) / 1000):0.0} 秒（{(automatic?"总指挥一轮 · 抓包估计":"指定时长")}）"
+            ? !committed ? "正在确认各成员能否停止演奏" : $"{(automatic && HoldingTail(value)?"尾音保留 · ":"")}距离本机停止还有 {Math.Max(0, StopRemainingMilliseconds(stop)/1000):0.0} 秒（{(automatic?"总指挥一轮 · 抓包估计":"指定时长")}）"
             : automatic ? CycleWaitingText(value) : "由房主手动全员停止";
         var detail = value.GetProperty("interruption");
         var interruption = detail.ValueKind == JsonValueKind.Object ? InterruptionText(detail) : "";

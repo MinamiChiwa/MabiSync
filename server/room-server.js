@@ -23,7 +23,7 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
   const serverEpoch = randomUUID(), rooms = new Map(), closures = new Map(), timers = new Set();
   let closing = false;
   const now = () => performance.now();
-  const identity = { product: PRODUCT, protocolVersion: VERSION, serverEpoch, features: { gameObservation: 1, ensembleRoster: 1, firstCycleStop: 1, rosterEditing: 1, roomClosure:1, adaptiveTiming:2 } };
+  const identity = { product: PRODUCT, protocolVersion: VERSION, serverEpoch, features: { gameObservation: 1, ensembleRoster: 1, firstCycleStop: 1, firstCycleTail:1, rosterEditing: 1, roomClosure:1, adaptiveTiming:2 } };
   const server = http.createServer((req, res) => {
     res.writeHead(req.url === '/health' ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(req.url === '/health' ? { ok: true, ...identity, automaticGameEndVerified: false } : { error: 'not found' }));
@@ -122,7 +122,7 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
       participantIds: p.participantIds, startParticipantIds: p.startParticipantIds, manualJoinerIds: p.manualJoinerIds,
       startAction: p.startAction, stopAction: p.stopAction,
       stopTimingSource: p.stopAction ? p.stopTimingSource??'user-duration' : null,
-      stopRule:p.stopRule, cycleStopStatus:p.cycleStopStatus, cycleScore:p.cycleBinding,
+      stopRule:p.stopRule, tailHoldMs:p.tailHoldMs, cycleStopStatus:p.cycleStopStatus, cycleScore:p.cycleBinding,
       stopCommitted:!!p.stopAction && p.committed.has(p.stopAction.id),
       normalEndRule: p.mode === 'emote' ? 'none' : 'leader-first-cycle',
       firstCycleTimingVerified: false,
@@ -191,7 +191,9 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
     const end=m.estimatedStartServerMs+m.wholeScoreDurationSeconds*1000;
     // The observed leader start already includes that member's manual offset.
     // Undo it once before the shared stop receives each member's frozen offset.
-    const target=end-p.leaderOffsetMs;
+    // Notation endpoint excludes the game's instrument fadeout. Keep the score
+    // duration intact and delay only the shared stop, once for the whole room.
+    const target=end+p.tailHoldMs-p.leaderOffsetMs;
     p.cycleBinding={generation:o.generation,realmId:o.identity.realmId,characterId:o.identity.characterId,concertId:m.concertId,
       scoreSha256:m.scoreSha256,title:m.title,durationSeconds:m.wholeScoreDurationSeconds,estimatedEndServerMs:end};
     if (target+p.minimumOffsetMs<=now()+50) {p.cycleStopStatus='too-late';return;}
@@ -315,6 +317,9 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
     const stopRule=msg.stopRule??(duration===undefined?'manual':'duration');
     if (!['manual','duration','first-cycle'].includes(stopRule) || (stopRule==='first-cycle' && duration!==undefined)) fail('BAD_STOP_RULE');
     if (msg.mode==='emote' && stopRule==='first-cycle') fail('STOP_NOT_APPLICABLE');
+    if (msg.mode==='emote' && msg.tailHoldMs!==undefined) fail('STOP_NOT_APPLICABLE');
+    const tailHoldMs=msg.tailHoldMs===undefined?0:msg.tailHoldMs;
+    if (!Number.isInteger(tailHoldMs) || tailHoldMs<0 || tailHoldMs>10000 || (stopRule!=='first-cycle' && msg.tailHoldMs!==undefined)) fail('BAD_TAIL_HOLD');
     if (msg.mode === 'emote' && duration !== undefined) fail('STOP_NOT_APPLICABLE');
     if (duration !== undefined && (!Number.isInteger(duration) || duration < 1 || duration > 86_400_000)) fail('BAD_DURATION');
     const manualJoinerIds = msg.mode === 'ensemble' ? ids.filter(id => room.members.has(id) && ensembleRole(room.members.get(id)) === 'joiner') : [];
@@ -341,7 +346,7 @@ export async function createRoomServer({ port = 3132, host = '127.0.0.1' } = {})
       participantIds: [...ids], startParticipantIds, manualJoinerIds, sessionAcks: new Set(),
       startAction: action('start', target), earliestStartServerMs: target - advance, latestStartServerMs: target + delay,
       delayMs: Math.max(0, ...ids.map(id => room.members.get(id).capabilities.timingOffsetMs ?? 0)),
-      stopAction: duration === undefined ? undefined : action('stop', target + duration),stopRule,
+      stopAction: duration === undefined ? undefined : action('stop', target + duration),stopRule,tailHoldMs,
       cycleStopStatus:stopRule==='first-cycle'?'waiting-for-score':null,
       minimumOffsetMs:Math.min(0,...ids.map(id=>room.members.get(id).capabilities.timingOffsetMs??0)),
       leaderOffsetMs:room.members.get(room.leaderId)?.capabilities.timingOffsetMs??0,

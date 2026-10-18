@@ -159,6 +159,21 @@ internal static partial class Program
     {
         var window=NewWindow();var path=Field<string>(window,"_settings");
         try {
+            var tail=(TextBox?)window.FindName("TailHoldBox");
+            Check(tail is not null && tail.Text=="1","First-cycle tail hold should default to one second");
+            tail!.Text="1.25";
+            Check(Field<long>(window,"_musicTailHoldMs")==1250,"Tail hold input was not converted to milliseconds");
+            try{Call(window,"PrepareTailHold");throw new Exception("Old server silently ignored tail hold");}
+            catch(TargetInvocationException error) when(error.InnerException is InvalidOperationException issue && issue.Message.Contains("服务器")){}
+            var tailClient=Field<RoomClient>(window,"_client");
+            typeof(RoomClient).GetProperty("SupportsFirstCycleTail")!.SetValue(tailClient,true);
+            Check((long)window.GetType().GetMethod("PrepareTailHold",Private)!.Invoke(window,null)! ==1250,"New service did not receive the selected hold");
+            tail.Text="-1";
+            Check(Field<string?>(window,"_musicTailHoldError") is not null,"Negative tail hold was accepted");
+            tail.Text="1.25";
+            ((ComboBox)window.FindName("StopChoice")).SelectedIndex=0;
+            Check(((FrameworkElement)window.FindName("TailControls")).Visibility==Visibility.Collapsed,"Manual stop shows automatic tail controls");
+            ((ComboBox)window.FindName("StopChoice")).SelectedIndex=2;
             Check(((FrameworkElement)window.FindName("StartButtonHelp")).ToolTip?.ToString()=="请选中乐谱的使用按钮位置。","Start button help is missing");
             ((ComboBox)window.FindName("ModeBox")).SelectedIndex=0;
             ((ComboBox)window.FindName("ModeBox")).SelectedIndex=1;
@@ -169,6 +184,7 @@ internal static partial class Program
         } finally {await Close(window);}
         var restored=(Window)Activator.CreateInstance(_windowType,Private,null,[path,false],null)!;
         try {
+            Check(((TextBox)restored.FindName("TailHoldBox")).Text=="1.25","Saved tail hold was lost");
             Check(((ComboBox)restored.FindName("StartInputKind")).SelectedIndex==0,"Saved unbound shortcut preference was replaced by the new default");
             Check(((TextBox)restored.FindName("StopKeyBox")).Text=="Space","Saved stop binding was lost");
             Check(Field<bool>(restored,"_hideFromCapture"),"Explicit capture hiding preference was not restored");

@@ -37,6 +37,17 @@ public static class MusicDurationText
     }
 }
 
+public static class MusicTailText
+{
+    public static long ParseMilliseconds(string text)
+    {
+        if (!decimal.TryParse(text.Trim(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var seconds) ||
+            seconds is < 0 or > 10 || seconds * 1000 != decimal.Truncate(seconds * 1000))
+            throw new FormatException("尾音保留请填写 0–10 秒，最多三位小数，例如 1 或 1.5。");
+        return (long)(seconds * 1000);
+    }
+}
+
 public sealed record ImportedMml(string Name, ScoreTimeline Timeline)
 {
     public bool AutomaticEndAvailable => false;
