@@ -123,6 +123,7 @@ internal static class EmoteRoomFlow
         public readonly GameWindowState Window = new(new(123, 456, 1, "C:/Fake/MabinogiMobile.exe"), new(0, 0, 1280, 960, 96), true, true, true);
         public int EnterDowns, EnterUps, OtherInputs;
         public GameWindowState Inspect(GameWindowId window) => Window;
+        public Task ActivateAsync(GameWindowId window, CancellationToken token=default) { token.ThrowIfCancellationRequested(); return Task.CompletedTask; }
         public bool KeyIsDown(ushort key) => false;
         public bool LeftButtonIsDown() => false;
         public bool PointBelongsToWindow(GameWindowId window, int x, int y) => false;

@@ -20,6 +20,6 @@ public static class WindowActivation
             if(i==5)foreground(window);
             await Task.Delay(50,token);
         }
-        throw new InvalidOperationException("系统未允许激活游戏窗口，请手动切回游戏后重试开始。");
+        throw new InvalidOperationException("系统未允许激活游戏窗口，请手动切回游戏后重试。");
     }
 }

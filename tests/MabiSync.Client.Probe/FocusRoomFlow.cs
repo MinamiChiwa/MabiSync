@@ -32,8 +32,11 @@ internal static class FocusRoomFlow
                 await Wait(()=>host.Room?.GetProperty("performance") is{ValueKind:JsonValueKind.Object} p && p.GetProperty("phase").GetString()=="performing");
                 await Wait(()=>platform.Events.Count>=inputs+(initiator?2:0));
                 Check(platform.State.Foreground && platform.Events.Count==inputs+(initiator?2:0),"Member did not restore before start, or manual joiner received input");
+                // A stop must restore a member that was minimized after the round began.
+                platform.Minimize();
                 await host.SendAsync(new{type="stop-all"});await Wait(()=>host.Room?.GetProperty("performance").GetProperty("phase").GetString()=="stopped");
                 await Wait(()=>platform.Events.Count==inputs+(initiator?4:2));
+                Check(platform.State.Foreground,"Member stop did not restore the selected game window");
             }
             Check(activated==2,"Window preparation was not once per round");
             await host.UpdateRosterAsync("edit-ensemble-member",member.Session.MemberId,group:2,musicRole:"initiator");
@@ -58,6 +61,10 @@ internal static class FocusRoomFlow
         public void Minimize()=>State=State with{Visible=false,Foreground=false,Client=new(0,0,0,0,96)};
         public void Restore()=>State=State with{Visible=true,Foreground=true,Client=new(0,0,1280,960,96)};
         public GameWindowState? Inspect(GameWindowId window)=>State;
+        public Task ActivateAsync(GameWindowId window,CancellationToken token=default)
+        {
+            token.ThrowIfCancellationRequested(); Restore(); return Task.CompletedTask;
+        }
         public bool KeyIsDown(ushort key)=>false;
         public bool LeftButtonIsDown()=>false;
         public bool PointBelongsToWindow(GameWindowId window,int x,int y)=>true;

@@ -27,6 +27,7 @@ public sealed class UnknownPlaybackEvidence : IPlaybackEvidence { public bool Av
 public interface IGameInputPlatform
 {
     GameWindowState? Inspect(GameWindowId window);
+    Task ActivateAsync(GameWindowId window, CancellationToken token = default);
     bool KeyIsDown(ushort key);
     bool LeftButtonIsDown();
     bool PointBelongsToWindow(GameWindowId window, int screenX, int screenY);
@@ -94,6 +95,14 @@ public sealed class GameInputExecutor : IInputExecutor
             if (p.ChatDraft && Interlocked.Exchange(ref _chatDraftConfirmed, 0) == 0) throw new InvalidOperationException("本次未按回车。请重新填好指令并点击“就绪”。");
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate) if (_downKeys.Count > 0 || _mouseDown) throw new InvalidOperationException("上次操作的按键或鼠标未能松开，本次操作已暂停。请点击“本机停止”重试。");
+            if (action.Kind == "stop")
+            {
+                // Stops may arrive while the game is covered or minimized. Restore
+                // the frozen target before validating the binding and sending input.
+                Inspect(p.Window, false);
+                _platform.ActivateAsync(p.Window, cancellationToken).GetAwaiter().GetResult();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
             var state = Inspect(p.Window, true);
             ValidateBinding(p.Binding, state.Client);
             if (p.Toggle)
